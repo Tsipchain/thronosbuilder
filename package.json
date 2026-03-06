@@ -1,0 +1,41 @@
+{
+  "name": "thronos-build",
+  "version": "1.0.0",
+  "description": "Mobile app build automation service for ThronosChain",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "worker": "node src/workers/buildWorker.js",
+    "migrate": "node scripts/migrate.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "bull": "^4.12.0",
+    "redis": "^4.6.8",
+    "pg": "^8.11.3",
+    "sequelize": "^6.33.0",
+    "ws": "^8.14.2",
+    "multer": "^1.4.5-lts.1",
+    "axios": "^1.6.0",
+    "octokit": "^3.1.2",
+    "ipfs-http-client": "^60.0.1",
+    "@aws-sdk/client-s3": "^3.450.0",
+    "web3": "^4.3.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1",
+    "simple-git": "^3.20.0",
+    "archiver": "^6.0.1",
+    "extract-zip": "^2.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
