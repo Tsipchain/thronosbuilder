@@ -149,9 +149,54 @@ async function buildIOS({
 }
 
 async function downloadAndUploadArtifact(downloadUrl, jobId) {
-  // Implementation would download from GitHub and upload to IPFS/S3
-  // Placeholder for now
-  return `https://ipfs.thronoschain.org/ipfs/Qm${jobId}`;
+  const axios = require('axios');
+  const fs = require('fs');
+  const path = require('path');
+  const extractZip = require('extract-zip');
+
+  const tmpDir = `/tmp/builds/${jobId}-ios`;
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  try {
+    // Download the artifact zip from GitHub Actions
+    const response = await axios.get(downloadUrl, {
+      headers: {
+        Authorization: `token ${process.env.GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github.v3+json'
+      },
+      responseType: 'arraybuffer',
+      maxContentLength: 500 * 1024 * 1024 // 500MB max
+    });
+
+    const zipPath = path.join(tmpDir, 'artifact.zip');
+    fs.writeFileSync(zipPath, Buffer.from(response.data));
+
+    // Extract the zip to find the IPA file
+    const extractDir = path.join(tmpDir, 'extracted');
+    await extractZip(zipPath, { dir: extractDir });
+
+    // Find the .ipa file in extracted contents
+    const files = fs.readdirSync(extractDir);
+    const ipaFile = files.find(f => f.endsWith('.ipa'));
+
+    if (!ipaFile) {
+      throw new Error('No .ipa file found in GitHub Actions artifact');
+    }
+
+    const ipaPath = path.join(extractDir, ipaFile);
+
+    // Upload IPA to storage (IPFS or S3)
+    const artifactUrl = await uploadToStorage(ipaPath, `${jobId}/app.ipa`);
+
+    return artifactUrl;
+  } finally {
+    // Cleanup temp files
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+  }
 }
 
 module.exports = { buildIOS };
