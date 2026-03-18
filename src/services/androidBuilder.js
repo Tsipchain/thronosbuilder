@@ -86,8 +86,51 @@ async function buildAndroid({
       onProgress(80, 'Signing APK...');
       onLog('Signing APK with provided keystore', 'info');
 
-      // TODO: Implement APK signing logic
-      // jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 -keystore mykeystore.jks app-release-unsigned.apk alias_name
+      const keystorePath = path.join(buildDir, 'release-keystore.jks');
+
+      // Decode base64 keystore and write to disk
+      fs.writeFileSync(keystorePath, Buffer.from(signingConfig.android_keystore, 'base64'));
+
+      const keystorePassword = signingConfig.keystore_password;
+      const keyAlias = signingConfig.key_alias;
+      const keyPassword = signingConfig.key_password || keystorePassword;
+
+      if (!keystorePassword || !keyAlias) {
+        throw new Error('Signing requires keystore_password and key_alias in signing config');
+      }
+
+      // Sign the APK with jarsigner
+      const signedApkPath = artifactPath.replace('-unsigned.apk', '-signed.apk');
+
+      execSync(
+        `jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 ` +
+        `-keystore "${keystorePath}" ` +
+        `-storepass "${keystorePassword}" ` +
+        `-keypass "${keyPassword}" ` +
+        `"${artifactPath}" "${keyAlias}"`,
+        { cwd: buildDir, stdio: 'pipe' }
+      );
+
+      onLog('APK signed with jarsigner', 'info');
+
+      // Zipalign the signed APK
+      const alignedApkPath = artifactPath.replace('-unsigned.apk', '-aligned.apk');
+      try {
+        execSync(
+          `zipalign -v 4 "${artifactPath}" "${alignedApkPath}"`,
+          { cwd: buildDir, stdio: 'pipe' }
+        );
+        // Replace the artifact path with the aligned version
+        artifactPath = alignedApkPath;
+        onLog('APK zipaligned successfully', 'info');
+      } catch (alignError) {
+        onLog('zipalign not available, skipping alignment', 'warning');
+      }
+
+      // Clean up keystore from disk
+      fs.unlinkSync(keystorePath);
+
+      onLog('APK signing completed', 'success');
     }
 
     // Upload artifact
