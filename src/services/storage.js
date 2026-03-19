@@ -1,14 +1,19 @@
-const { create } = require('ipfs-http-client');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const fs = require('fs');
 const path = require('path');
 
-// Initialize clients
-let ipfs;
-try {
-  ipfs = create({ url: process.env.IPFS_API_URL || 'http://localhost:5001' });
-} catch (e) {
-  console.warn('IPFS not available, falling back to S3');
+// IPFS client (lazy-loaded via dynamic import — ipfs-http-client is ESM-only)
+let _ipfsPromise;
+function getIpfs() {
+  if (!_ipfsPromise) {
+    _ipfsPromise = import('ipfs-http-client')
+      .then(mod => mod.create({ url: process.env.IPFS_API_URL || 'http://localhost:5001' }))
+      .catch(e => {
+        console.warn('IPFS not available, falling back to S3:', e.message);
+        return null;
+      });
+  }
+  return _ipfsPromise;
 }
 
 const s3 = new S3Client({
@@ -23,6 +28,7 @@ async function uploadToStorage(filePath, key) {
   const fileContent = fs.readFileSync(filePath);
 
   // Try IPFS first
+  const ipfs = await getIpfs();
   if (ipfs) {
     try {
       const result = await ipfs.add(fileContent);
