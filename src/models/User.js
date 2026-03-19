@@ -9,7 +9,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     wallet_address: {
       type: DataTypes.STRING(42),
-      allowNull: false,
+      allowNull: true,
       unique: true,
       validate: {
         is: /^0x[a-fA-F0-9]{40}$/
