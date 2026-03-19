@@ -6,6 +6,49 @@ const { addBuildJob } = require('../services/queue');
 const { calculateCost } = require('../utils/pricing');
 const { verifyPayment } = require('../services/blockchain');
 
+// List builds for a wallet
+router.get('/', async (req, res) => {
+  try {
+    const { wallet_address } = req.query;
+
+    if (!wallet_address) {
+      return res.status(400).json({ error: 'wallet_address query parameter required' });
+    }
+
+    const user = await User.findOne({ where: { wallet_address } });
+    if (!user) {
+      return res.json({ builds: [] });
+    }
+
+    const jobs = await BuildJob.findAll({
+      where: { user_id: user.id },
+      order: [['created_at', 'DESC']],
+      limit: 50
+    });
+
+    res.json({
+      builds: jobs.map(j => ({
+        job_id: j.id,
+        project_name: j.project_name,
+        source_type: j.source_type,
+        platform: j.platform,
+        build_type: j.build_type,
+        status: j.status,
+        progress: j.progress,
+        cost_thron: j.cost_thron,
+        payment_status: j.payment_status,
+        created_at: j.created_at,
+        completed_at: j.completed_at,
+        android_artifact_url: j.android_artifact_url,
+        ios_artifact_url: j.ios_artifact_url
+      }))
+    });
+  } catch (error) {
+    console.error('List builds error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Submit new build job
 router.post('/', async (req, res) => {
   try {

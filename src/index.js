@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -13,7 +14,7 @@ const app = express();
 const server = createServer(app);
 
 // Middleware
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -21,6 +22,9 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/v1/builds', buildRoutes);
 app.use('/api/v1/status', statusRoutes);
+
+// Static frontend
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -32,7 +36,7 @@ app.get('/health', (req, res) => {
 });
 
 // WebSocket setup
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server });
 setupWebSocket(wss);
 
 // Database connection and server start
