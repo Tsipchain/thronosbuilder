@@ -602,6 +602,152 @@ a:hover { text-decoration: underline; }
   to { transform: translateX(0); opacity: 1; }
 }
 
+/* ─── Chain Badge (Navbar) ──────────────────────────────────────────────── */
+.chain-badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-glow);
+  color: var(--accent-light);
+  border: 1px solid var(--accent);
+}
+
+.chain-badge.solana { background: rgba(153,69,255,0.15); border-color: #9945FF; color: #14F195; }
+.chain-badge.ethereum { background: rgba(98,126,234,0.15); border-color: #627eea; color: #627eea; }
+.chain-badge.bsc { background: rgba(243,186,47,0.15); border-color: #F3BA2F; color: #F3BA2F; }
+.chain-badge.arbitrum { background: rgba(40,160,240,0.15); border-color: #28a0f0; color: #28a0f0; }
+.chain-badge.base { background: rgba(0,82,255,0.15); border-color: #0052FF; color: #0052FF; }
+
+/* ─── Wallet Connect Modal ─────────────────────────────────────────────── */
+.wallet-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wallet-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+  color: var(--text-primary);
+  text-align: left;
+  width: 100%;
+  font-size: 14px;
+}
+
+.wallet-option:hover {
+  border-color: var(--accent);
+  background: var(--bg-card-hover);
+}
+
+.wo-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), #a78bfa);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.wo-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.wo-name { font-weight: 600; font-size: 15px; }
+.wo-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.wo-arrow { color: var(--text-muted); font-size: 18px; }
+
+.wallet-option-divider {
+  text-align: center;
+  margin: 16px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  position: relative;
+}
+
+.wallet-option-divider::before,
+.wallet-option-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 35%;
+  height: 1px;
+  background: var(--border);
+}
+
+.wallet-option-divider::before { left: 0; }
+.wallet-option-divider::after { right: 0; }
+
+/* ─── Payment Methods (Build Form) ─────────────────────────────────────── */
+.payment-methods {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.payment-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.payment-option:hover { border-color: var(--accent); }
+.payment-option.selected { border-color: var(--accent); background: var(--accent-glow); }
+
+.payment-option input[type="radio"] { display: none; }
+
+.pm-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), #a78bfa);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: white;
+}
+
+.pm-info { display: flex; flex-direction: column; }
+.pm-name { font-weight: 600; font-size: 13px; color: var(--text-primary); }
+.pm-chain { font-size: 10px; color: var(--text-muted); }
+
+.fee-info {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--yellow-bg);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(245,158,11,0.3);
+}
+
+.fee-note {
+  font-size: 12px;
+  color: var(--yellow);
+}
+
 /* ─── Responsive ────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .build-card {

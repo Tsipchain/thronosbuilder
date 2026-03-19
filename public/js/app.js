@@ -1,9 +1,46 @@
-/* ─── ThronosBuild Dashboard ─────────────────────────────────────────── */
+/* ─── ThronosBuild Dashboard — Multi-Wallet + Cross-Chain ───────────── */
 
 const API = '/api/v1';
-let walletAddress = null;
+const GATEWAY_URL = window.GATEWAY_URL || '/api/gateway';
+
+// ─── Wallet State ──────────────────────────────────────────────────────
+let wallet = {
+  address: null,
+  type: null,      // 'thronos' | 'metamask' | 'phantom'
+  chain: null,     // 'thronos' | 'ethereum' | 'arbitrum' | 'bsc' | 'base' | 'solana'
+  provider: null,
+};
+
 let pricingData = null;
 let currentWs = null;
+
+// Chain configs
+const CHAINS = {
+  thronos: { name: 'ThronosChain', symbol: 'THR', color: 'var(--accent)' },
+  ethereum: { name: 'Ethereum', symbol: 'ETH', chainId: '0x1', color: '#627eea' },
+  arbitrum: { name: 'Arbitrum', symbol: 'ETH', chainId: '0xa4b1', color: '#28a0f0' },
+  bsc: { name: 'BNB Chain', symbol: 'BNB', chainId: '0x38', color: '#F3BA2F' },
+  base: { name: 'Base', symbol: 'ETH', chainId: '0x2105', color: '#0052FF' },
+  solana: { name: 'Solana', symbol: 'USDC', color: '#9945FF' },
+};
+
+// Treasury addresses per chain (paid by cross-chain users)
+const TREASURY = {
+  ethereum: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD1e',
+  arbitrum: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD1e',
+  bsc: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD1e',
+  base: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD1e',
+  solana: 'THRtreas1111111111111111111111111111111111',
+};
+
+// USDC contract addresses
+const USDC_CONTRACTS = {
+  ethereum: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+  arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+  bsc: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+  base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  solana: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+};
 
 // ─── Page Navigation ───────────────────────────────────────────────────
 document.querySelectorAll('.navbar-links a').forEach(link => {
@@ -26,7 +63,6 @@ function showPage(page) {
   const link = document.querySelector(`[data-page="${page}"]`);
   if (link) link.classList.add('active');
 
-  // Hide other pages
   document.querySelectorAll('.page').forEach(p => {
     if (p.id !== 'page-' + page) p.style.display = 'none';
   });
@@ -35,50 +71,178 @@ function showPage(page) {
   if (page === 'pricing') loadPricing();
 }
 
-// Initialize
 document.querySelectorAll('.page').forEach(p => {
   if (!p.classList.contains('active')) p.style.display = 'none';
 });
 
-// ─── Wallet Connection ─────────────────────────────────────────────────
-document.getElementById('connectWallet').addEventListener('click', connectWallet);
+// ─── Wallet Connect Modal ──────────────────────────────────────────────
+document.getElementById('connectWallet').addEventListener('click', () => {
+  if (wallet.address) {
+    disconnectWallet();
+    return;
+  }
+  document.getElementById('walletModal').classList.add('active');
+});
 
-async function connectWallet() {
-  if (walletAddress) {
-    walletAddress = null;
-    document.getElementById('connectWallet').textContent = 'Connect Wallet';
-    document.getElementById('connectWallet').classList.remove('connected');
-    toast('Wallet disconnected');
+function closeWalletModal() {
+  document.getElementById('walletModal').classList.remove('active');
+}
+
+document.getElementById('walletModal').addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) closeWalletModal();
+});
+
+function disconnectWallet() {
+  wallet = { address: null, type: null, chain: null, provider: null };
+  const btn = document.getElementById('connectWallet');
+  btn.textContent = 'Connect Wallet';
+  btn.classList.remove('connected');
+  document.getElementById('chainBadge').style.display = 'none';
+  toast('Wallet disconnected');
+}
+
+function setWalletConnected(address, type, chain) {
+  wallet.address = address;
+  wallet.type = type;
+  wallet.chain = chain;
+
+  const short = address.slice(0, 6) + '...' + address.slice(-4);
+  const btn = document.getElementById('connectWallet');
+  btn.textContent = short;
+  btn.classList.add('connected');
+
+  // Show chain badge
+  const badge = document.getElementById('chainBadge');
+  badge.textContent = CHAINS[chain]?.name || chain;
+  badge.className = 'chain-badge ' + chain;
+  badge.style.display = 'inline';
+
+  closeWalletModal();
+  toast(`Connected via ${type} on ${CHAINS[chain]?.name}`, 'success');
+  loadDashboard();
+}
+
+// ─── Thronos Wallet Connect ────────────────────────────────────────────
+async function connectThronosWallet() {
+  // Check for Thronos wallet extension
+  if (typeof window.thronos !== 'undefined') {
+    try {
+      const resp = await window.thronos.connect();
+      setWalletConnected(resp.address, 'thronos', 'thronos');
+      wallet.provider = window.thronos;
+    } catch (err) {
+      toast('Thronos wallet connection rejected', 'error');
+    }
     return;
   }
 
-  if (typeof window.ethereum !== 'undefined') {
-    try {
-      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-      walletAddress = accounts[0];
-      const short = walletAddress.slice(0, 6) + '...' + walletAddress.slice(-4);
-      document.getElementById('connectWallet').textContent = short;
-      document.getElementById('connectWallet').classList.add('connected');
-      toast('Wallet connected!', 'success');
-      loadDashboard();
-    } catch (err) {
-      toast('Connection rejected', 'error');
-    }
+  // Fallback: prompt for THR address + auth
+  const addr = prompt('Enter your THR address (e.g. THR1234...):');
+  if (!addr) return;
+
+  if (/^THR[a-fA-F0-9]{40}$/.test(addr)) {
+    setWalletConnected(addr, 'thronos', 'thronos');
   } else {
-    // Demo mode — prompt for address
-    const addr = prompt('Enter your wallet address (or leave empty for demo):');
-    if (addr && /^0x[a-fA-F0-9]{40}$/.test(addr)) {
-      walletAddress = addr;
-    } else {
-      walletAddress = '0x' + 'demo'.padStart(40, '0');
-    }
-    const short = walletAddress.slice(0, 6) + '...' + walletAddress.slice(-4);
-    document.getElementById('connectWallet').textContent = short;
-    document.getElementById('connectWallet').classList.add('connected');
-    toast('Wallet connected (demo mode)', 'success');
-    loadDashboard();
+    toast('Invalid THR address. Format: THR + 40 hex chars', 'error');
   }
 }
+
+// ─── MetaMask Connect ──────────────────────────────────────────────────
+async function connectMetaMask() {
+  if (typeof window.ethereum === 'undefined') {
+    toast('MetaMask not detected. Install MetaMask to continue.', 'error');
+    return;
+  }
+
+  try {
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    const address = accounts[0];
+
+    // Detect current chain
+    const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+    const chain = detectEVMChain(chainIdHex);
+
+    wallet.provider = window.ethereum;
+    setWalletConnected(address, 'metamask', chain);
+
+    // Listen for chain changes
+    window.ethereum.on('chainChanged', (newChainId) => {
+      wallet.chain = detectEVMChain(newChainId);
+      const badge = document.getElementById('chainBadge');
+      badge.textContent = CHAINS[wallet.chain]?.name || wallet.chain;
+      badge.className = 'chain-badge ' + wallet.chain;
+      toast(`Switched to ${CHAINS[wallet.chain]?.name}`, 'success');
+    });
+
+    // Listen for account changes
+    window.ethereum.on('accountsChanged', (accs) => {
+      if (accs.length === 0) {
+        disconnectWallet();
+      } else {
+        wallet.address = accs[0];
+        const short = accs[0].slice(0, 6) + '...' + accs[0].slice(-4);
+        document.getElementById('connectWallet').textContent = short;
+      }
+    });
+
+  } catch (err) {
+    toast('MetaMask connection rejected', 'error');
+  }
+}
+
+function detectEVMChain(chainIdHex) {
+  const map = { '0x1': 'ethereum', '0xa4b1': 'arbitrum', '0x38': 'bsc', '0x2105': 'base' };
+  return map[chainIdHex] || 'ethereum';
+}
+
+// ─── Phantom (Solana) Connect ──────────────────────────────────────────
+async function connectPhantom() {
+  const phantom = window.solana || window.phantom?.solana;
+
+  if (!phantom || !phantom.isPhantom) {
+    toast('Phantom wallet not detected. Install Phantom to continue.', 'error');
+    return;
+  }
+
+  try {
+    const resp = await phantom.connect();
+    const address = resp.publicKey.toString();
+    wallet.provider = phantom;
+    setWalletConnected(address, 'phantom', 'solana');
+  } catch (err) {
+    toast('Phantom connection rejected', 'error');
+  }
+}
+
+// ─── Manual Wallet Input ───────────────────────────────────────────────
+function connectManualWallet() {
+  const input = document.getElementById('manualWalletInput').value.trim();
+  if (!input) {
+    toast('Please enter a wallet address', 'error');
+    return;
+  }
+
+  // Detect wallet type from address format
+  if (/^THR[a-fA-F0-9]{40}$/.test(input)) {
+    setWalletConnected(input, 'thronos', 'thronos');
+  } else if (/^0x[a-fA-F0-9]{40}$/.test(input)) {
+    setWalletConnected(input, 'metamask', 'ethereum');
+  } else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(input)) {
+    setWalletConnected(input, 'phantom', 'solana');
+  } else {
+    toast('Unrecognized address format', 'error');
+  }
+}
+
+// ─── Payment Method Selection ──────────────────────────────────────────
+document.addEventListener('click', e => {
+  const opt = e.target.closest('.payment-option');
+  if (!opt) return;
+  document.querySelectorAll('.payment-option').forEach(o => o.classList.remove('selected'));
+  opt.classList.add('selected');
+  opt.querySelector('input').checked = true;
+  updateCost();
+});
 
 // ─── Dashboard ─────────────────────────────────────────────────────────
 async function loadDashboard() {
@@ -102,12 +266,11 @@ async function loadStats() {
 }
 
 async function loadBuilds() {
-  if (!walletAddress) return;
+  if (!wallet.address) return;
 
   try {
-    const res = await fetch(`${API}/builds?wallet_address=${encodeURIComponent(walletAddress)}`);
+    const res = await fetch(`${API}/builds?wallet_address=${encodeURIComponent(wallet.address)}`);
     if (!res.ok) {
-      // API may not support listing yet — show empty
       showEmptyState();
       return;
     }
@@ -148,8 +311,8 @@ function renderBuilds(builds) {
       </div>
       <span class="badge badge-${b.status}">${b.status}</span>
       <div class="progress-wrap">
-        <div class="progress-bar"><div class="fill" style="width:${b.progress}%"></div></div>
-        <div class="progress-text">${b.progress}%</div>
+        <div class="progress-bar"><div class="fill" style="width:${b.progress || 0}%"></div></div>
+        <div class="progress-text">${b.progress || 0}%</div>
       </div>
       <div class="build-actions">
         ${b.status === 'success' ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); downloadArtifact('${b.job_id}', '${b.platform}')">Download</button>` : ''}
@@ -191,8 +354,8 @@ async function openBuildDetail(jobId) {
       <div class="detail-field">
         <div class="label">Progress</div>
         <div class="value">
-          <div class="progress-bar" style="margin-top:4px"><div class="fill" style="width:${b.progress}%"></div></div>
-          <span style="font-size:12px; color:var(--text-secondary)">${b.progress}%</span>
+          <div class="progress-bar" style="margin-top:4px"><div class="fill" style="width:${b.progress || 0}%"></div></div>
+          <span style="font-size:12px; color:var(--text-secondary)">${b.progress || 0}%</span>
         </div>
       </div>
       <div class="detail-field">
@@ -201,7 +364,6 @@ async function openBuildDetail(jobId) {
       </div>
     `;
 
-    // Actions
     const actions = document.getElementById('detailActions');
     actions.innerHTML = '';
     if (b.status === 'success') {
@@ -213,10 +375,8 @@ async function openBuildDetail(jobId) {
       }
     }
 
-    // Load logs
     loadBuildLogs(jobId);
 
-    // Connect WebSocket for live logs
     if (b.status === 'building' || b.status === 'pending') {
       connectBuildWs(jobId);
     }
@@ -227,21 +387,21 @@ async function openBuildDetail(jobId) {
 }
 
 async function loadBuildLogs(jobId) {
-  const console_el = document.getElementById('buildConsole');
+  const consoleEl = document.getElementById('buildConsole');
   try {
     const res = await fetch(`${API}/builds/${jobId}/logs`);
     const data = await res.json();
 
     if (data.logs && data.logs.length) {
-      console_el.innerHTML = data.logs.map(l =>
+      consoleEl.innerHTML = data.logs.map(l =>
         `<div class="log-line ${l.type || ''}">${escapeHtml(l.line)}</div>`
       ).join('');
-      console_el.scrollTop = console_el.scrollHeight;
+      consoleEl.scrollTop = consoleEl.scrollHeight;
     } else {
-      console_el.innerHTML = '<div class="log-line">No logs yet...</div>';
+      consoleEl.innerHTML = '<div class="log-line">No logs yet...</div>';
     }
   } catch (e) {
-    console_el.innerHTML = '<div class="log-line error">Failed to load logs</div>';
+    consoleEl.innerHTML = '<div class="log-line error">Failed to load logs</div>';
   }
 }
 
@@ -257,20 +417,18 @@ function connectBuildWs(jobId) {
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
-      const console_el = document.getElementById('buildConsole');
+      const consoleEl = document.getElementById('buildConsole');
 
       if (msg.event === 'log') {
         const div = document.createElement('div');
         div.className = `log-line ${msg.data.type || ''}`;
         div.textContent = msg.data.line;
-        console_el.appendChild(div);
-        console_el.scrollTop = console_el.scrollHeight;
+        consoleEl.appendChild(div);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
       }
 
       if (msg.event === 'progress') {
-        // Update progress in detail view
-        const fills = document.querySelectorAll('.fill');
-        fills.forEach(f => f.style.width = msg.data.progress + '%');
+        document.querySelectorAll('.fill').forEach(f => f.style.width = msg.data.progress + '%');
       }
 
       if (msg.event === 'complete') {
@@ -293,11 +451,24 @@ function connectBuildWs(jobId) {
 document.getElementById('newBuildBtn').addEventListener('click', openNewBuild);
 
 function openNewBuild() {
-  if (!walletAddress) {
+  if (!wallet.address) {
     toast('Please connect your wallet first', 'error');
     return;
   }
   document.getElementById('newBuildModal').classList.add('active');
+
+  // Pre-select payment method based on wallet type
+  const methodMap = {
+    thronos: 'thr',
+    metamask: wallet.chain === 'bsc' ? 'bnb' : 'eth',
+    phantom: 'usdc_sol',
+  };
+  const method = methodMap[wallet.type] || 'thr';
+  document.querySelectorAll('.payment-option').forEach(o => {
+    o.classList.toggle('selected', o.dataset.method === method);
+    o.querySelector('input').checked = o.dataset.method === method;
+  });
+
   updateCost();
 }
 
@@ -306,7 +477,6 @@ function closeNewBuild() {
   document.getElementById('buildForm').reset();
 }
 
-// Close modal on overlay click
 document.getElementById('newBuildModal').addEventListener('click', e => {
   if (e.target.classList.contains('modal-overlay')) closeNewBuild();
 });
@@ -324,40 +494,82 @@ async function updateCost() {
   const form = document.getElementById('buildForm');
   const platform = form.platform.value;
   const buildType = form.build_type.value;
+  const paymentMethod = form.payment_method?.value || 'thr';
 
-  let cost = 0;
+  let costThr = 0;
   if (platform === 'android' || platform === 'both') {
-    cost += buildType === 'aab' ? pricingData.android.aab : pricingData.android.apk;
+    costThr += buildType === 'aab' ? pricingData.android.aab : pricingData.android.apk;
   }
   if (platform === 'ios' || platform === 'both') {
-    cost += pricingData.ios.ipa;
+    costThr += pricingData.ios.ipa;
   }
   if (platform === 'both') {
-    cost = Math.max(cost - pricingData.bundle_discount, 0);
+    costThr = Math.max(costThr - pricingData.bundle_discount, 0);
   }
 
-  document.getElementById('costPreview').textContent = `${cost} THRON`;
+  // Show cost in the selected payment currency
+  const costEl = document.getElementById('costPreview');
+  const feeInfo = document.getElementById('feeInfo');
+
+  if (paymentMethod === 'thr') {
+    costEl.textContent = `${costThr} THRON`;
+    feeInfo.style.display = 'none';
+  } else if (paymentMethod === 'usdc_sol') {
+    // Convert THR → USDC estimate (using a THR/USD rate)
+    const usdcCost = (costThr * 0.05).toFixed(2); // example: 1 THR = $0.05
+    costEl.textContent = `~${usdcCost} USDC`;
+    feeInfo.style.display = 'block';
+  } else if (paymentMethod === 'eth') {
+    const ethCost = (costThr * 0.000015).toFixed(6);
+    costEl.textContent = `~${ethCost} ETH`;
+    feeInfo.style.display = 'block';
+  } else if (paymentMethod === 'bnb') {
+    const bnbCost = (costThr * 0.00008).toFixed(6);
+    costEl.textContent = `~${bnbCost} BNB`;
+    feeInfo.style.display = 'block';
+  }
 }
 
+// ─── Submit Build (with cross-chain payment) ───────────────────────────
 async function submitBuild(e) {
   e.preventDefault();
 
   const form = document.getElementById('buildForm');
   const btn = document.getElementById('submitBtn');
   btn.disabled = true;
-  btn.textContent = 'Submitting...';
+  btn.textContent = 'Processing...';
 
-  const body = {
-    wallet_address: walletAddress,
-    project_name: form.project_name.value,
-    source_type: form.source_type.value,
-    source_url: form.source_url.value,
-    branch: form.branch.value || 'main',
-    platform: form.platform.value,
-    build_type: form.build_type.value,
-  };
+  const paymentMethod = form.payment_method?.value || 'thr';
 
   try {
+    // Step 1: For cross-chain payments, process payment first
+    let paymentProof = null;
+
+    if (paymentMethod !== 'thr' && wallet.type !== 'thronos') {
+      btn.textContent = 'Awaiting wallet...';
+      paymentProof = await processCrossChainPayment(paymentMethod, form);
+      if (!paymentProof) {
+        toast('Payment cancelled or failed', 'error');
+        return;
+      }
+    }
+
+    // Step 2: Submit build job
+    btn.textContent = 'Submitting build...';
+
+    const body = {
+      wallet_address: wallet.address,
+      project_name: form.project_name.value,
+      source_type: form.source_type.value,
+      source_url: form.source_url.value,
+      branch: form.branch.value || 'main',
+      platform: form.platform.value,
+      build_type: form.build_type.value,
+      payment_method: paymentMethod,
+      payment_chain: wallet.chain,
+      payment_proof: paymentProof,
+    };
+
     const res = await fetch(`${API}/builds`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -374,11 +586,181 @@ async function submitBuild(e) {
       toast(data.error || 'Submission failed', 'error');
     }
   } catch (err) {
-    toast('Network error: ' + err.message, 'error');
+    toast('Error: ' + err.message, 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Submit Build';
   }
+}
+
+// ─── Cross-Chain Payment Processing ────────────────────────────────────
+async function processCrossChainPayment(method, form) {
+  if (method === 'usdc_sol') {
+    return await processPhantomPayment(form);
+  } else if (method === 'eth' || method === 'bnb') {
+    return await processEVMPayment(method, form);
+  }
+  return null;
+}
+
+// ─── Phantom/Solana USDC Payment ───────────────────────────────────────
+async function processPhantomPayment(form) {
+  const phantom = wallet.provider;
+  if (!phantom) {
+    toast('Phantom wallet not connected', 'error');
+    return null;
+  }
+
+  try {
+    // Request payment via gateway — gets a Solana transaction to sign
+    const costThr = calculateThrCost(form);
+    const usdcAmount = (costThr * 0.05 * 1e6); // USDC has 6 decimals
+
+    const paymentRes = await fetch(`${API}/payments/solana/prepare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payer: wallet.address,
+        amount_usdc: usdcAmount,
+        service_type: 'builder_build',
+        treasury: TREASURY.solana,
+      }),
+    });
+
+    if (!paymentRes.ok) {
+      // Fallback: direct Phantom signAndSendTransaction
+      toast('Preparing Solana transaction...', 'success');
+
+      // Create SPL transfer instruction for USDC
+      const { Transaction, PublicKey, SystemProgram } = window.solanaWeb3 || {};
+
+      if (!Transaction) {
+        // Without solana-web3.js, use gateway to build the tx
+        toast('Requesting payment confirmation...', 'success');
+
+        // Sign a message as proof of intent
+        const message = new TextEncoder().encode(
+          `ThronosBuild payment: ${costThr} THR equivalent in USDC\n` +
+          `Project: ${form.project_name.value}\n` +
+          `Timestamp: ${Date.now()}`
+        );
+        const signature = await phantom.signMessage(message, 'utf8');
+
+        return {
+          type: 'solana_signed_intent',
+          payer: wallet.address,
+          signature: btoa(String.fromCharCode(...signature.signature)),
+          amount_usdc: usdcAmount / 1e6,
+          amount_thr_equivalent: costThr,
+          timestamp: Date.now(),
+        };
+      }
+    }
+
+    const paymentData = await paymentRes.json();
+    return paymentData.payment_proof;
+
+  } catch (err) {
+    console.error('Phantom payment error:', err);
+    toast('Solana payment failed: ' + err.message, 'error');
+    return null;
+  }
+}
+
+// ─── EVM (MetaMask) Payment ────────────────────────────────────────────
+async function processEVMPayment(method, form) {
+  if (!wallet.provider) {
+    toast('MetaMask not connected', 'error');
+    return null;
+  }
+
+  try {
+    const costThr = calculateThrCost(form);
+    let value, chain;
+
+    if (method === 'eth') {
+      value = '0x' + Math.floor(costThr * 0.000015 * 1e18).toString(16);
+      chain = wallet.chain;
+    } else if (method === 'bnb') {
+      value = '0x' + Math.floor(costThr * 0.00008 * 1e18).toString(16);
+      chain = 'bsc';
+      // Switch to BSC if needed
+      if (wallet.chain !== 'bsc') {
+        try {
+          await wallet.provider.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: '0x38' }],
+          });
+        } catch (switchErr) {
+          toast('Please switch to BNB Chain in MetaMask', 'error');
+          return null;
+        }
+      }
+    }
+
+    toast('Confirm transaction in MetaMask...', 'success');
+
+    // Send native token to treasury
+    const txHash = await wallet.provider.request({
+      method: 'eth_sendTransaction',
+      params: [{
+        from: wallet.address,
+        to: TREASURY[chain] || TREASURY.ethereum,
+        value: value,
+        data: '0x', // empty data for native transfer
+      }],
+    });
+
+    toast('Transaction submitted! Waiting for confirmation...', 'success');
+
+    // Register payment with gateway for cross-chain processing
+    const gatewayRes = await fetch(`${API}/payments/crosschain/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tx_hash: txHash,
+        chain: chain,
+        payer: wallet.address,
+        amount_thr_equivalent: costThr,
+        service_type: 'builder_build',
+        fee_action: 'stake_and_mint', // Signal: stake THR + mint on target chain
+      }),
+    });
+
+    return {
+      type: 'evm_tx',
+      tx_hash: txHash,
+      chain: chain,
+      payer: wallet.address,
+      amount_thr_equivalent: costThr,
+      timestamp: Date.now(),
+    };
+
+  } catch (err) {
+    if (err.code === 4001) {
+      toast('Transaction rejected by user', 'error');
+    } else {
+      toast('EVM payment failed: ' + err.message, 'error');
+    }
+    return null;
+  }
+}
+
+function calculateThrCost(form) {
+  if (!pricingData) return 10;
+  const platform = form.platform.value;
+  const buildType = form.build_type.value;
+  let cost = 0;
+  if (platform === 'android' || platform === 'both') {
+    cost += buildType === 'aab' ? pricingData.android.aab : pricingData.android.apk;
+  }
+  if (platform === 'ios' || platform === 'both') {
+    cost += pricingData.ios.ipa;
+  }
+  if (platform === 'both') {
+    cost = Math.max(cost - pricingData.bundle_discount, 0);
+  }
+  return cost;
 }
 
 // ─── Actions ───────────────────────────────────────────────────────────
@@ -422,6 +804,7 @@ async function loadPricing() {
         <li>GitHub / GitLab / ZIP source</li>
         <li>Real-time build logs</li>
         <li>IPFS artifact storage</li>
+        <li>Pay with THR, ETH, USDC, BNB</li>
       </ul>
     </div>
     <div class="price-card">
@@ -433,6 +816,7 @@ async function loadPricing() {
         <li>Signed & optimized</li>
         <li>Real-time build logs</li>
         <li>IPFS artifact storage</li>
+        <li>Pay with THR, ETH, USDC, BNB</li>
       </ul>
     </div>
     <div class="price-card">
@@ -444,6 +828,7 @@ async function loadPricing() {
         <li>Ad-hoc & App Store distribution</li>
         <li>Real-time build logs</li>
         <li>IPFS artifact storage</li>
+        <li>Pay with THR, ETH, USDC, BNB</li>
       </ul>
     </div>
     <div class="price-card" style="border-color:var(--accent)">
@@ -454,7 +839,7 @@ async function loadPricing() {
         <li>Android + iOS in one build</li>
         <li>Save ${pricingData.bundle_discount} THRON bundle discount</li>
         <li>Parallel builds</li>
-        <li>IPFS artifact storage</li>
+        <li>Cross-chain fee → LP pools</li>
       </ul>
     </div>
   `;
