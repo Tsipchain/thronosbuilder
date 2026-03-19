@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ThronosBuild — Mobile App Builder</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+  <!-- ─── Navbar ──────────────────────────────────────────────────────── -->
+  <nav class="navbar">
+    <div class="navbar-brand">
+      <div class="logo">T</div>
+      <span>ThronosBuild</span>
+    </div>
+    <div class="navbar-links">
+      <a href="#" data-page="dashboard" class="active">Dashboard</a>
+      <a href="#" data-page="pricing">Pricing</a>
+      <a href="#" data-page="docs">Docs</a>
+    </div>
+    <div class="navbar-right">
+      <button class="wallet-btn" id="connectWallet">Connect Wallet</button>
+    </div>
+  </nav>
+
+  <!-- ─── Main Content ────────────────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- Dashboard Page -->
+    <div id="page-dashboard" class="page active">
+
+      <div class="hero">
+        <h1>Build Mobile Apps on ThronosChain</h1>
+        <p>Submit your source code, pay with THRON, and get production-ready APK/IPA builds in minutes.</p>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-grid" id="statsGrid">
+        <div class="stat-card">
+          <div class="label">Total Builds</div>
+          <div class="value" id="statTotal">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Successful</div>
+          <div class="value" id="statSuccess" style="color:var(--green)">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">In Progress</div>
+          <div class="value" id="statBuilding" style="color:var(--blue)">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Total Spent</div>
+          <div class="value" id="statSpent">-</div>
+          <div class="sub">THRON</div>
+        </div>
+      </div>
+
+      <!-- Builds List -->
+      <div class="section-header">
+        <h2>Your Builds</h2>
+        <button class="btn btn-primary" id="newBuildBtn">+ New Build</button>
+      </div>
+
+      <div id="buildsList" class="builds-list">
+        <div class="empty-state" id="emptyState">
+          <div class="icon">&#128230;</div>
+          <p>No builds yet. Start by creating your first build.</p>
+          <button class="btn btn-primary" onclick="openNewBuild()">Create Build</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Build Detail Page -->
+    <div id="page-detail" class="page detail-panel">
+      <div class="detail-header">
+        <button class="back-btn" onclick="showPage('dashboard')">&larr;</button>
+        <h2 id="detailTitle">Build Details</h2>
+        <span class="badge" id="detailBadge"></span>
+      </div>
+
+      <div class="detail-grid" id="detailGrid"></div>
+
+      <div class="section-header">
+        <h2>Build Logs</h2>
+        <span class="badge badge-building" id="liveIndicator" style="display:none">LIVE</span>
+      </div>
+      <div class="console" id="buildConsole">
+        <div class="log-line">Waiting for logs...</div>
+      </div>
+
+      <div style="margin-top:20px" id="detailActions"></div>
+    </div>
+
+    <!-- Pricing Page -->
+    <div id="page-pricing" class="page">
+      <div class="hero">
+        <h1>Simple Pricing</h1>
+        <p>Pay per build with THRON tokens. No subscriptions, no hidden fees.</p>
+      </div>
+      <div class="pricing-grid" id="pricingGrid"></div>
+    </div>
+
+    <!-- Docs Page -->
+    <div id="page-docs" class="page">
+      <div class="hero">
+        <h1>Documentation</h1>
+        <p>Everything you need to build mobile apps with ThronosBuild.</p>
+      </div>
+      <div style="max-width:700px; margin:0 auto;">
+        <div class="stat-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">Getting Started</h3>
+          <ol style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
+            <li>Connect your wallet</li>
+            <li>Click "New Build" and fill in your GitHub repo URL</li>
+            <li>Select platform (Android/iOS/Both) and build type</li>
+            <li>Confirm payment in THRON tokens</li>
+            <li>Watch your build in real-time via WebSocket logs</li>
+            <li>Download your APK/IPA when the build completes</li>
+          </ol>
+        </div>
+        <div class="stat-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">Supported Source Types</h3>
+          <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
+            <li><strong>GitHub</strong> — Public or private repos (with token)</li>
+            <li><strong>GitLab</strong> — Public or private repos</li>
+            <li><strong>ZIP Upload</strong> — Upload your source code directly</li>
+          </ul>
+        </div>
+        <div class="stat-card">
+          <h3 style="margin-bottom:12px">API Reference</h3>
+          <div style="font-family:monospace; font-size:13px; color:var(--text-secondary); line-height:2">
+            <div><strong style="color:var(--green)">POST</strong> /api/v1/builds — Submit new build</div>
+            <div><strong style="color:var(--blue)">GET</strong> /api/v1/builds/:id — Get build status</div>
+            <div><strong style="color:var(--blue)">GET</strong> /api/v1/builds/:id/logs — Get build logs</div>
+            <div><strong style="color:var(--red)">POST</strong> /api/v1/builds/:id/cancel — Cancel build</div>
+            <div><strong style="color:var(--blue)">GET</strong> /api/v1/builds/:id/download/:platform — Download artifact</div>
+            <div><strong style="color:var(--blue)">GET</strong> /api/v1/status/pricing — Get pricing</div>
+            <div><strong style="color:var(--blue)">GET</strong> /api/v1/status/stats — Get system stats</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ─── New Build Modal ─────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="newBuildModal">
+    <div class="modal">
+      <h2>New Build</h2>
+      <form id="buildForm" onsubmit="submitBuild(event)">
+        <div class="form-group">
+          <label>Project Name</label>
+          <input type="text" name="project_name" placeholder="my-awesome-app" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Source Type</label>
+            <select name="source_type">
+              <option value="github">GitHub</option>
+              <option value="gitlab">GitLab</option>
+              <option value="zip">ZIP Upload</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Branch</label>
+            <input type="text" name="branch" value="main" placeholder="main">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Repository URL</label>
+          <input type="text" name="source_url" placeholder="https://github.com/user/repo" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Platform</label>
+            <select name="platform" onchange="updateCost()">
+              <option value="android">Android</option>
+              <option value="ios">iOS</option>
+              <option value="both">Both (Android + iOS)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Build Type</label>
+            <select name="build_type" onchange="updateCost()">
+              <option value="apk">APK (Debug/Release)</option>
+              <option value="aab">AAB (Play Store)</option>
+              <option value="ipa">IPA (iOS)</option>
+            </select>
+          </div>
+        </div>
+        <div class="cost-preview">
+          <span class="cost-label">Estimated Cost</span>
+          <span class="cost-value" id="costPreview">10 THRON</span>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeNewBuild()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="submitBtn">Submit Build</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
