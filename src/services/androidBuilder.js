@@ -36,15 +36,61 @@ async function buildAndroid({
     // Detect build system
     const hasGradle = fs.existsSync(path.join(buildDir, 'gradlew'));
     const hasPackageJson = fs.existsSync(path.join(buildDir, 'package.json'));
+    const hasPubspec = fs.existsSync(path.join(buildDir, 'pubspec.yaml'));
+    // Also check if Flutter project is inside a subfolder (e.g. flutter_app/)
+    const flutterSubdirs = ['flutter_app', 'mobile', 'app_flutter'];
+    let flutterDir = hasPubspec ? buildDir : null;
+    if (!flutterDir) {
+      for (const sub of flutterSubdirs) {
+        const subPath = path.join(buildDir, sub, 'pubspec.yaml');
+        if (fs.existsSync(subPath)) {
+          flutterDir = path.join(buildDir, sub);
+          break;
+        }
+      }
+    }
 
     let artifactPath;
 
-    if (hasGradle) {
+    if (flutterDir) {
+      // Flutter build
+      onProgress(30, 'Detected Flutter project...');
+      onLog('Detected Flutter project (pubspec.yaml found)', 'info');
+
+      // Install Flutter dependencies
+      onProgress(35, 'Running flutter pub get...');
+      execSync('flutter pub get', {
+        cwd: flutterDir,
+        stdio: 'pipe',
+        env: { ...process.env, ANDROID_HOME: process.env.ANDROID_HOME || '/opt/android-sdk' }
+      });
+      onLog('Flutter dependencies installed', 'success');
+
+      // Build APK or AAB
+      onProgress(50, `Building Flutter ${buildType.toUpperCase()}...`);
+      if (buildType === 'aab') {
+        execSync('flutter build appbundle --release', {
+          cwd: flutterDir,
+          stdio: 'pipe',
+          env: { ...process.env, ANDROID_HOME: process.env.ANDROID_HOME || '/opt/android-sdk' }
+        });
+        artifactPath = path.join(flutterDir, 'build/app/outputs/bundle/release/app-release.aab');
+      } else {
+        execSync('flutter build apk --release', {
+          cwd: flutterDir,
+          stdio: 'pipe',
+          env: { ...process.env, ANDROID_HOME: process.env.ANDROID_HOME || '/opt/android-sdk' }
+        });
+        artifactPath = path.join(flutterDir, 'build/app/outputs/flutter-apk/app-release.apk');
+      }
+      onLog(`Flutter ${buildType.toUpperCase()} built successfully`, 'success');
+
+    } else if (hasGradle) {
       // Native Android build
       onProgress(30, 'Building with Gradle...');
       onLog('Detected Gradle project', 'info');
 
-      const gradleCmd = buildType === 'aab' 
+      const gradleCmd = buildType === 'aab'
         ? './gradlew bundleRelease'
         : './gradlew assembleRelease';
 
@@ -78,7 +124,7 @@ async function buildAndroid({
         artifactPath = path.join(buildDir, 'android/app/build/outputs/apk/release/app-release.apk');
       }
     } else {
-      throw new Error('Could not detect build system. Supported: Gradle, React Native, Expo');
+      throw new Error('Could not detect build system. Supported: Flutter, Gradle, React Native, Expo');
     }
 
     // Sign APK if keystore provided
