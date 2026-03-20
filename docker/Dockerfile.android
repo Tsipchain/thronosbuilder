@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y \
     wget \
     unzip \
     git \
+    curl \
+    xz-utils \
     nodejs \
     npm \
     && rm -rf /var/lib/apt/lists/*
@@ -22,7 +24,16 @@ RUN mkdir -p ${ANDROID_HOME}/cmdline-tools \
 
 # Accept licenses and install SDK components
 RUN yes | sdkmanager --licenses \
-    && sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0"
+    && sdkmanager "platform-tools" "platforms;android-33" "platforms;android-34" "build-tools;33.0.0" "build-tools;34.0.0"
+
+# Install Flutter SDK
+ENV FLUTTER_HOME=/opt/flutter
+ENV PATH=${PATH}:${FLUTTER_HOME}/bin:${FLUTTER_HOME}/bin/cache/dart-sdk/bin
+RUN git clone --depth 1 --branch stable https://github.com/flutter/flutter.git ${FLUTTER_HOME} \
+    && flutter precache --android \
+    && flutter config --no-analytics \
+    && yes | flutter doctor --android-licenses \
+    && flutter doctor
 
 # Create build directory
 WORKDIR /build
