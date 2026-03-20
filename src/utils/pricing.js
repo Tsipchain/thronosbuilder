@@ -21,7 +21,7 @@ function calculateCost(platform, buildType) {
 
   // Bundle discount
   if (platform === 'both') {
-    const discount = 5; // THRON discount
+    const discount = 5; // THR discount
     cost = Math.max(cost - discount, 0);
   }
 
@@ -33,11 +33,11 @@ function getPricing() {
     android: {
       apk: parseFloat(process.env.PRICE_ANDROID_APK) || 10,
       aab: parseFloat(process.env.PRICE_ANDROID_AAB) || 10,
-      currency: 'THRON'
+      currency: 'THR'
     },
     ios: {
       ipa: parseFloat(process.env.PRICE_IOS_IPA) || 50,
-      currency: 'THRON'
+      currency: 'THR'
     },
     bundle_discount: 5,
     notes: [
