@@ -381,7 +381,7 @@ async function openBuildDetail(jobId) {
       </div>
       <div class="detail-field">
         <div class="label">Cost</div>
-        <div class="value">${b.cost_thron} THRON</div>
+        <div class="value">${b.cost_thron} THR</div>
       </div>
       <div class="detail-field">
         <div class="label">Progress</div>
@@ -551,7 +551,7 @@ async function updateCost() {
   const feeInfo = document.getElementById('feeInfo');
 
   if (paymentMethod === 'thr') {
-    costEl.textContent = `${costThr} THRON`;
+    costEl.textContent = `${costThr} THR`;
     feeInfo.style.display = 'none';
   } else if (paymentMethod === 'usdt_evm') {
     // USDT is pegged 1:1 to USD, convert THR → USD
@@ -945,7 +945,7 @@ async function loadPricing() {
     <div class="price-card">
       <div class="platform-icon">&#129302;</div>
       <h3>Android APK</h3>
-      <div class="price">${pricingData.android.apk} <span class="unit">THRON</span></div>
+      <div class="price">${pricingData.android.apk} <span class="unit">THR</span></div>
       <ul class="features">
         <li>Debug & Release builds</li>
         <li>GitHub / GitLab / ZIP source</li>
@@ -957,7 +957,7 @@ async function loadPricing() {
     <div class="price-card">
       <div class="platform-icon">&#127922;</div>
       <h3>Android AAB</h3>
-      <div class="price">${pricingData.android.aab} <span class="unit">THRON</span></div>
+      <div class="price">${pricingData.android.aab} <span class="unit">THR</span></div>
       <ul class="features">
         <li>Play Store ready</li>
         <li>Signed & optimized</li>
@@ -969,7 +969,7 @@ async function loadPricing() {
     <div class="price-card">
       <div class="platform-icon">&#127823;</div>
       <h3>iOS IPA</h3>
-      <div class="price">${pricingData.ios.ipa} <span class="unit">THRON</span></div>
+      <div class="price">${pricingData.ios.ipa} <span class="unit">THR</span></div>
       <ul class="features">
         <li>macOS cloud build</li>
         <li>Ad-hoc & App Store distribution</li>
@@ -981,10 +981,10 @@ async function loadPricing() {
     <div class="price-card" style="border-color:var(--accent)">
       <div class="platform-icon">&#128171;</div>
       <h3>Both Platforms</h3>
-      <div class="price">${pricingData.android.apk + pricingData.ios.ipa - pricingData.bundle_discount} <span class="unit">THRON</span></div>
+      <div class="price">${pricingData.android.apk + pricingData.ios.ipa - pricingData.bundle_discount} <span class="unit">THR</span></div>
       <ul class="features">
         <li>Android + iOS in one build</li>
-        <li>Save ${pricingData.bundle_discount} THRON bundle discount</li>
+        <li>Save ${pricingData.bundle_discount} THR bundle discount</li>
         <li>Parallel builds</li>
         <li>Cross-chain fee → LP pools</li>
       </ul>

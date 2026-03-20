@@ -86,7 +86,7 @@ router.post('/', async (req, res) => {
       return res.status(402).json({ 
         error: 'Payment verification failed',
         required_amount: cost_thron,
-        message: 'Please pay the required THRON amount before submitting build'
+        message: 'Please pay the required THR amount before submitting build'
       });
     }
 
