@@ -8,12 +8,9 @@ module.exports = (sequelize, DataTypes) => {
       primaryKey: true
     },
     wallet_address: {
-      type: DataTypes.STRING(42),
+      type: DataTypes.STRING(128),
       allowNull: true,
-      unique: true,
-      validate: {
-        is: /^0x[a-fA-F0-9]{40}$/
-      }
+      unique: true
     },
     created_at: {
       type: DataTypes.DATE,
