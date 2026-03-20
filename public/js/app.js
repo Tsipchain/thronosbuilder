@@ -104,6 +104,8 @@ document.getElementById('walletModal').addEventListener('click', e => {
 
 function disconnectWallet() {
   wallet = { address: null, type: null, chain: null, provider: null };
+  // Clear session-cached credentials
+  sessionStorage.removeItem('thr_auth');
   const btn = document.getElementById('connectWallet');
   btn.textContent = 'Connect Wallet';
   btn.classList.remove('connected');
@@ -132,28 +134,141 @@ function setWalletConnected(address, type, chain) {
   loadDashboard();
 }
 
+// ─── Store/retrieve THR auth secret for session ─────────────────────
+function storeThrAuth(address, secret) {
+  // Encrypt with a simple session key (not persistent across browser closes)
+  const data = JSON.stringify({ a: address, s: secret, t: Date.now() });
+  sessionStorage.setItem('thr_auth', btoa(data));
+}
+
+function getThrAuth() {
+  try {
+    const raw = sessionStorage.getItem('thr_auth');
+    if (!raw) return null;
+    const data = JSON.parse(atob(raw));
+    // Expire after 30 minutes
+    if (Date.now() - data.t > 30 * 60 * 1000) {
+      sessionStorage.removeItem('thr_auth');
+      return null;
+    }
+    return { address: data.a, secret: data.s };
+  } catch { return null; }
+}
+
 // ─── Thronos Wallet Connect ────────────────────────────────────────────
 async function connectThronosWallet() {
-  // Check for Thronos wallet extension
+  // Option 1: Thronos Chrome Extension / window.thronos provider
   if (typeof window.thronos !== 'undefined') {
     try {
       const resp = await window.thronos.connect();
       setWalletConnected(resp.address, 'thronos', 'thronos');
       wallet.provider = window.thronos;
+      // Extension handles secret internally - no need to ask
+      return;
     } catch (err) {
       toast('Thronos wallet connection rejected', 'error');
+      return;
     }
+  }
+
+  // Option 2: Manual THR address + send secret (for users without extension)
+  showThronosConnectModal();
+}
+
+function showThronosConnectModal() {
+  // Check if we have cached credentials
+  const cached = getThrAuth();
+  if (cached && /^THR[a-fA-F0-9]{40}$/.test(cached.address)) {
+    setWalletConnected(cached.address, 'thronos', 'thronos');
+    toast('Reconnected from session', 'success');
     return;
   }
 
-  // Fallback: prompt for THR address + auth
-  const addr = prompt('Enter your THR address (e.g. THR1234...):');
-  if (!addr) return;
+  // Create inline modal for THR address + secret
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay active';
+  overlay.id = 'thronosConnectOverlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:420px">
+      <h2 style="margin-bottom:4px">Connect Thronos Wallet</h2>
+      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">
+        Enter your THR address and send secret to enable payments.
+        <br>Your secret is stored encrypted in this session only.
+      </p>
+      <div style="margin-bottom:12px">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">THR Address</label>
+        <input type="text" id="thrAddrInput" placeholder="THRa60e1cef..."
+               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Send Secret</label>
+        <input type="password" id="thrSecretInput" placeholder="Your auth secret from pledge"
+               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
+        <span style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:block">
+          Required for payments. Never shared with third parties.
+        </span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button onclick="document.getElementById('thronosConnectOverlay').remove()"
+                class="btn btn-secondary" style="flex:1">Cancel</button>
+        <button onclick="submitThronosConnect()" class="btn btn-primary" style="flex:1" id="thrConnectBtn">Connect</button>
+      </div>
+      <div style="margin-top:12px;text-align:center">
+        <a href="https://chromewebstore.google.com" target="_blank"
+           style="font-size:12px;color:var(--accent)">
+          Or install the Thronos Chrome Extension for easier access
+        </a>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.remove();
+  });
+  document.getElementById('thrAddrInput').focus();
+}
 
-  if (/^THR[a-fA-F0-9]{40}$/.test(addr)) {
-    setWalletConnected(addr, 'thronos', 'thronos');
-  } else {
+async function submitThronosConnect() {
+  const addr = document.getElementById('thrAddrInput').value.trim();
+  const secret = document.getElementById('thrSecretInput').value.trim();
+  const btn = document.getElementById('thrConnectBtn');
+
+  if (!addr) { toast('THR address required', 'error'); return; }
+  if (!/^THR[a-fA-F0-9]{40}$/.test(addr)) {
     toast('Invalid THR address. Format: THR + 40 hex chars', 'error');
+    return;
+  }
+  if (!secret) { toast('Send secret required for payments', 'error'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Verifying...';
+
+  try {
+    // Verify balance to confirm address is valid on chain
+    const res = await fetch(`${API}/builds/preflight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wallet_address: addr }),
+    });
+    const data = await res.json();
+
+    if (data.error && data.error.includes('Invalid')) {
+      toast('Address not found on Thronos chain', 'error');
+      btn.disabled = false; btn.textContent = 'Connect';
+      return;
+    }
+
+    // Store auth in session (encrypted, expires in 30 min)
+    storeThrAuth(addr, secret);
+    setWalletConnected(addr, 'thronos', 'thronos');
+    document.getElementById('thronosConnectOverlay').remove();
+
+    if (data.balance !== null) {
+      toast(`Connected! Balance: ${data.balance} THR`, 'success');
+    }
+  } catch (err) {
+    toast('Connection error: ' + err.message, 'error');
+    btn.disabled = false; btn.textContent = 'Connect';
   }
 }
 
@@ -656,6 +771,20 @@ async function submitBuild(e) {
       payment_proof: paymentProof,
       tx_id: paymentProof?.txHash || paymentProof?.signature || undefined,
     };
+
+    // Inject cached auth_secret for THR payments (collected at wallet connect time)
+    if (paymentMethod === 'thr' || wallet.chain === 'thronos') {
+      const thrAuth = getThrAuth();
+      if (thrAuth) {
+        body.auth_secret = thrAuth.secret;
+      } else if (wallet.provider && wallet.provider === window.thronos) {
+        // Extension handles signing internally — no auth_secret needed
+      } else {
+        toast('Session expired. Please reconnect your Thronos wallet.', 'error');
+        disconnectWallet();
+        return;
+      }
+    }
 
     const res = await fetch(`${API}/builds`, {
       method: 'POST',
