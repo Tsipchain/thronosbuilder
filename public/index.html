@@ -20,6 +20,7 @@
       <a href="#" data-page="docs">Docs</a>
     </div>
     <div class="navbar-right">
+      <span class="chain-badge" id="chainBadge" style="display:none"></span>
       <button class="wallet-btn" id="connectWallet">Connect Wallet</button>
     </div>
   </nav>
@@ -96,9 +97,37 @@
     <div id="page-pricing" class="page">
       <div class="hero">
         <h1>Simple Pricing</h1>
-        <p>Pay per build with THRON tokens. No subscriptions, no hidden fees.</p>
+        <p>Pay with THRON, ETH, USDC (Solana), or any supported token. No subscriptions.</p>
       </div>
       <div class="pricing-grid" id="pricingGrid"></div>
+
+      <div style="max-width:700px; margin:24px auto 0;">
+        <div class="stat-card">
+          <h3 style="margin-bottom:12px">Cross-Chain Payments</h3>
+          <p style="color:var(--text-secondary); font-size:14px; line-height:1.8">
+            ThronosBuild accepts payments across multiple networks. Fees collected on external chains
+            are used to mint wrapped THR tokens on those networks while locking native THR in our
+            liquidity pools — creating real cross-chain liquidity for the Sentinel trading pools.
+          </p>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-top:16px;">
+            <div style="background:var(--bg-primary); border-radius:8px; padding:12px; text-align:center;">
+              <div style="font-size:20px; margin-bottom:4px;">&#9930;</div>
+              <div style="font-size:13px; font-weight:600;">ThronosChain</div>
+              <div style="font-size:11px; color:var(--text-muted);">Native THR</div>
+            </div>
+            <div style="background:var(--bg-primary); border-radius:8px; padding:12px; text-align:center;">
+              <div style="font-size:20px; margin-bottom:4px;">&#9830;</div>
+              <div style="font-size:13px; font-weight:600;">Ethereum / L2s</div>
+              <div style="font-size:11px; color:var(--text-muted);">ETH, USDT, ARB, BNB, Base</div>
+            </div>
+            <div style="background:var(--bg-primary); border-radius:8px; padding:12px; text-align:center;">
+              <div style="font-size:20px; margin-bottom:4px;">&#9788;</div>
+              <div style="font-size:13px; font-weight:600;">Solana</div>
+              <div style="font-size:11px; color:var(--text-muted);">USDC via Phantom</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Docs Page -->
@@ -188,15 +217,134 @@
             </select>
           </div>
         </div>
+        <div class="form-group">
+          <label>Payment Method</label>
+          <div class="payment-methods" id="paymentMethods">
+            <label class="payment-option selected" data-method="thr">
+              <input type="radio" name="payment_method" value="thr" checked>
+              <div class="pm-icon">T</div>
+              <div class="pm-info">
+                <span class="pm-name">THR</span>
+                <span class="pm-chain">ThronosChain</span>
+              </div>
+            </label>
+            <label class="payment-option" data-method="eth">
+              <input type="radio" name="payment_method" value="eth">
+              <div class="pm-icon" style="background:linear-gradient(135deg,#627eea,#3b5998)">E</div>
+              <div class="pm-info">
+                <span class="pm-name">ETH</span>
+                <span class="pm-chain">Ethereum</span>
+              </div>
+            </label>
+            <label class="payment-option" data-method="usdt_evm">
+              <input type="radio" name="payment_method" value="usdt_evm">
+              <div class="pm-icon" style="background:linear-gradient(135deg,#26A17B,#1a7a5a)">&#8366;</div>
+              <div class="pm-info">
+                <span class="pm-name">USDT</span>
+                <span class="pm-chain">ETH / ARB / BNB</span>
+              </div>
+            </label>
+            <label class="payment-option" data-method="usdc_sol">
+              <input type="radio" name="payment_method" value="usdc_sol">
+              <div class="pm-icon" style="background:linear-gradient(135deg,#9945FF,#14F195)">S</div>
+              <div class="pm-info">
+                <span class="pm-name">USDC</span>
+                <span class="pm-chain">Solana</span>
+              </div>
+            </label>
+            <label class="payment-option" data-method="bnb">
+              <input type="radio" name="payment_method" value="bnb">
+              <div class="pm-icon" style="background:linear-gradient(135deg,#F3BA2F,#d4a017)">B</div>
+              <div class="pm-info">
+                <span class="pm-name">BNB</span>
+                <span class="pm-chain">BSC</span>
+              </div>
+            </label>
+          </div>
+          <!-- USDT chain selector (shown when USDT selected) -->
+          <div class="usdt-chain-select" id="usdtChainSelect" style="display:none; margin-top:10px;">
+            <label style="font-size:12px; color:var(--text-secondary); margin-bottom:6px; display:block;">USDT Network</label>
+            <div class="payment-methods" style="grid-template-columns: repeat(3, 1fr);">
+              <label class="payment-option selected" data-usdtchain="ethereum">
+                <input type="radio" name="usdt_chain" value="ethereum" checked>
+                <div class="pm-icon" style="background:linear-gradient(135deg,#627eea,#3b5998); width:28px; height:28px; font-size:11px;">ETH</div>
+                <div class="pm-info"><span class="pm-name" style="font-size:11px;">Ethereum</span></div>
+              </label>
+              <label class="payment-option" data-usdtchain="arbitrum">
+                <input type="radio" name="usdt_chain" value="arbitrum">
+                <div class="pm-icon" style="background:linear-gradient(135deg,#28a0f0,#1a6fb0); width:28px; height:28px; font-size:11px;">ARB</div>
+                <div class="pm-info"><span class="pm-name" style="font-size:11px;">Arbitrum</span></div>
+              </label>
+              <label class="payment-option" data-usdtchain="bsc">
+                <input type="radio" name="usdt_chain" value="bsc">
+                <div class="pm-icon" style="background:linear-gradient(135deg,#F3BA2F,#d4a017); width:28px; height:28px; font-size:11px;">BNB</div>
+                <div class="pm-info"><span class="pm-name" style="font-size:11px;">BNB Chain</span></div>
+              </label>
+            </div>
+          </div>
+        </div>
         <div class="cost-preview">
           <span class="cost-label">Estimated Cost</span>
           <span class="cost-value" id="costPreview">10 THRON</span>
+        </div>
+        <div class="fee-info" id="feeInfo" style="display:none">
+          <span class="fee-note">Cross-chain fee: 50% treasury, 25% burn, 25% LP pools</span>
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-secondary" onclick="closeNewBuild()">Cancel</button>
           <button type="submit" class="btn btn-primary" id="submitBtn">Submit Build</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ─── Wallet Connect Modal ──────────────────────────────────────── -->
+  <div class="modal-overlay" id="walletModal">
+    <div class="modal" style="max-width:440px">
+      <h2>Connect Wallet</h2>
+      <p style="color:var(--text-secondary); font-size:14px; margin-bottom:20px;">
+        Choose your wallet to connect and pay for builds.
+      </p>
+      <div class="wallet-options">
+        <button class="wallet-option" onclick="connectThronosWallet()">
+          <div class="wo-icon" style="background:linear-gradient(135deg,var(--accent),#a78bfa)">T</div>
+          <div class="wo-info">
+            <span class="wo-name">Thronos Wallet</span>
+            <span class="wo-desc">Native THR &mdash; lowest fees</span>
+          </div>
+          <span class="wo-arrow">&rarr;</span>
+        </button>
+        <button class="wallet-option" onclick="connectMetaMask()">
+          <div class="wo-icon" style="background:linear-gradient(135deg,#E2761B,#CD6116)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M22.5 2L13.4 8.9l1.7-4L22.5 2zM1.5 2l9 7-1.6-4.1L1.5 2zm18 15.5l-2.4 3.7 5.2 1.4 1.5-5.1h-4.3zM1.2 17l1.5 5.1 5.2-1.4-2.4-3.7H1.2z"/></svg>
+          </div>
+          <div class="wo-info">
+            <span class="wo-name">MetaMask</span>
+            <span class="wo-desc">ETH, ARB, BNB, Base &mdash; cross-chain bridge</span>
+          </div>
+          <span class="wo-arrow">&rarr;</span>
+        </button>
+        <button class="wallet-option" onclick="connectPhantom()">
+          <div class="wo-icon" style="background:linear-gradient(135deg,#9945FF,#14F195)">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
+          </div>
+          <div class="wo-info">
+            <span class="wo-name">Phantom (Solana)</span>
+            <span class="wo-desc">USDC payment &mdash; auto-creates THR on Solana</span>
+          </div>
+          <span class="wo-arrow">&rarr;</span>
+        </button>
+      </div>
+      <div class="wallet-option-divider">
+        <span>or enter manually</span>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <input type="text" id="manualWalletInput" placeholder="THR... / 0x... / Solana address">
+      </div>
+      <div class="form-actions" style="margin-top:16px">
+        <button class="btn btn-secondary" onclick="closeWalletModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="connectManualWallet()">Connect</button>
+      </div>
     </div>
   </div>
 
