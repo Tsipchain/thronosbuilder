@@ -118,7 +118,7 @@
             <div style="background:var(--bg-primary); border-radius:8px; padding:12px; text-align:center;">
               <div style="font-size:20px; margin-bottom:4px;">&#9830;</div>
               <div style="font-size:13px; font-weight:600;">Ethereum / L2s</div>
-              <div style="font-size:11px; color:var(--text-muted);">ETH, ARB, BNB, Base</div>
+              <div style="font-size:11px; color:var(--text-muted);">ETH, USDT, ARB, BNB, Base</div>
             </div>
             <div style="background:var(--bg-primary); border-radius:8px; padding:12px; text-align:center;">
               <div style="font-size:20px; margin-bottom:4px;">&#9788;</div>
@@ -236,6 +236,14 @@
                 <span class="pm-chain">Ethereum</span>
               </div>
             </label>
+            <label class="payment-option" data-method="usdt_evm">
+              <input type="radio" name="payment_method" value="usdt_evm">
+              <div class="pm-icon" style="background:linear-gradient(135deg,#26A17B,#1a7a5a)">&#8366;</div>
+              <div class="pm-info">
+                <span class="pm-name">USDT</span>
+                <span class="pm-chain">ETH / ARB / BNB</span>
+              </div>
+            </label>
             <label class="payment-option" data-method="usdc_sol">
               <input type="radio" name="payment_method" value="usdc_sol">
               <div class="pm-icon" style="background:linear-gradient(135deg,#9945FF,#14F195)">S</div>
@@ -252,6 +260,27 @@
                 <span class="pm-chain">BSC</span>
               </div>
             </label>
+          </div>
+          <!-- USDT chain selector (shown when USDT selected) -->
+          <div class="usdt-chain-select" id="usdtChainSelect" style="display:none; margin-top:10px;">
+            <label style="font-size:12px; color:var(--text-secondary); margin-bottom:6px; display:block;">USDT Network</label>
+            <div class="payment-methods" style="grid-template-columns: repeat(3, 1fr);">
+              <label class="payment-option selected" data-usdtchain="ethereum">
+                <input type="radio" name="usdt_chain" value="ethereum" checked>
+                <div class="pm-icon" style="background:linear-gradient(135deg,#627eea,#3b5998); width:28px; height:28px; font-size:11px;">ETH</div>
+                <div class="pm-info"><span class="pm-name" style="font-size:11px;">Ethereum</span></div>
+              </label>
+              <label class="payment-option" data-usdtchain="arbitrum">
+                <input type="radio" name="usdt_chain" value="arbitrum">
+                <div class="pm-icon" style="background:linear-gradient(135deg,#28a0f0,#1a6fb0); width:28px; height:28px; font-size:11px;">ARB</div>
+                <div class="pm-info"><span class="pm-name" style="font-size:11px;">Arbitrum</span></div>
+              </label>
+              <label class="payment-option" data-usdtchain="bsc">
+                <input type="radio" name="usdt_chain" value="bsc">
+                <div class="pm-icon" style="background:linear-gradient(135deg,#F3BA2F,#d4a017); width:28px; height:28px; font-size:11px;">BNB</div>
+                <div class="pm-info"><span class="pm-name" style="font-size:11px;">BNB Chain</span></div>
+              </label>
+            </div>
           </div>
         </div>
         <div class="cost-preview">

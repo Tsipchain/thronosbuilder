@@ -42,6 +42,16 @@ const USDC_CONTRACTS = {
   solana: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
 };
 
+// USDT contract addresses per EVM chain
+const USDT_CONTRACTS = {
+  ethereum: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  arbitrum: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+  bsc: '0x55d398326f99059fF775485246999027B3197955',
+};
+
+// ERC20 transfer function signature
+const ERC20_TRANSFER_ABI = '0xa9059cbb'; // transfer(address,uint256)
+
 // ─── Page Navigation ───────────────────────────────────────────────────
 document.querySelectorAll('.navbar-links a').forEach(link => {
   link.addEventListener('click', e => {
@@ -238,9 +248,31 @@ function connectManualWallet() {
 document.addEventListener('click', e => {
   const opt = e.target.closest('.payment-option');
   if (!opt) return;
-  document.querySelectorAll('.payment-option').forEach(o => o.classList.remove('selected'));
+
+  // Check if this is inside the USDT chain sub-selector
+  const usdtChainSelect = document.getElementById('usdtChainSelect');
+  if (usdtChainSelect && usdtChainSelect.contains(opt)) {
+    // Handle USDT chain selection
+    usdtChainSelect.querySelectorAll('.payment-option').forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+    opt.querySelector('input').checked = true;
+    updateCost();
+    return;
+  }
+
+  // Main payment method selection
+  const container = document.getElementById('paymentMethods');
+  if (!container || !container.contains(opt)) return;
+
+  container.querySelectorAll('.payment-option').forEach(o => o.classList.remove('selected'));
   opt.classList.add('selected');
   opt.querySelector('input').checked = true;
+
+  // Show/hide USDT chain selector
+  if (usdtChainSelect) {
+    usdtChainSelect.style.display = opt.dataset.method === 'usdt_evm' ? 'block' : 'none';
+  }
+
   updateCost();
 });
 
@@ -464,10 +496,17 @@ function openNewBuild() {
     phantom: 'usdc_sol',
   };
   const method = methodMap[wallet.type] || 'thr';
-  document.querySelectorAll('.payment-option').forEach(o => {
+  const pmContainer = document.getElementById('paymentMethods');
+  pmContainer.querySelectorAll('.payment-option').forEach(o => {
     o.classList.toggle('selected', o.dataset.method === method);
     o.querySelector('input').checked = o.dataset.method === method;
   });
+
+  // Show/hide USDT chain selector
+  const usdtChainSelect = document.getElementById('usdtChainSelect');
+  if (usdtChainSelect) {
+    usdtChainSelect.style.display = method === 'usdt_evm' ? 'block' : 'none';
+  }
 
   updateCost();
 }
@@ -514,9 +553,15 @@ async function updateCost() {
   if (paymentMethod === 'thr') {
     costEl.textContent = `${costThr} THRON`;
     feeInfo.style.display = 'none';
+  } else if (paymentMethod === 'usdt_evm') {
+    // USDT is pegged 1:1 to USD, convert THR → USD
+    const usdtCost = (costThr * 0.05).toFixed(2); // 1 THR = $0.05
+    const usdtChain = form.usdt_chain?.value || 'ethereum';
+    const chainNames = { ethereum: 'ERC-20', arbitrum: 'Arbitrum', bsc: 'BEP-20' };
+    costEl.textContent = `~${usdtCost} USDT (${chainNames[usdtChain] || usdtChain})`;
+    feeInfo.style.display = 'block';
   } else if (paymentMethod === 'usdc_sol') {
-    // Convert THR → USDC estimate (using a THR/USD rate)
-    const usdcCost = (costThr * 0.05).toFixed(2); // example: 1 THR = $0.05
+    const usdcCost = (costThr * 0.05).toFixed(2); // 1 THR = $0.05
     costEl.textContent = `~${usdcCost} USDC`;
     feeInfo.style.display = 'block';
   } else if (paymentMethod === 'eth') {
@@ -597,6 +642,8 @@ async function submitBuild(e) {
 async function processCrossChainPayment(method, form) {
   if (method === 'usdc_sol') {
     return await processPhantomPayment(form);
+  } else if (method === 'usdt_evm') {
+    return await processUsdtPayment(form);
   } else if (method === 'eth' || method === 'bnb') {
     return await processEVMPayment(method, form);
   }
@@ -746,6 +793,106 @@ async function processEVMPayment(method, form) {
   }
 }
 
+// ─── USDT (ERC-20) Payment on ETH/ARB/BNB ─────────────────────────────
+async function processUsdtPayment(form) {
+  if (!wallet.provider) {
+    toast('MetaMask not connected', 'error');
+    return null;
+  }
+
+  try {
+    const costThr = calculateThrCost(form);
+    const usdtAmount = costThr * 0.05; // 1 THR = $0.05 → USDT amount
+    const usdtChain = form.usdt_chain?.value || 'ethereum';
+
+    // Get the USDT contract for the selected chain
+    const usdtContract = USDT_CONTRACTS[usdtChain];
+    if (!usdtContract) {
+      toast('USDT not available on this chain', 'error');
+      return null;
+    }
+
+    // Switch chain if needed
+    const chainIds = { ethereum: '0x1', arbitrum: '0xa4b1', bsc: '0x38' };
+    const targetChainId = chainIds[usdtChain];
+    const currentChainId = await wallet.provider.request({ method: 'eth_chainId' });
+
+    if (currentChainId !== targetChainId) {
+      try {
+        await wallet.provider.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: targetChainId }],
+        });
+      } catch (switchErr) {
+        const chainNames = { ethereum: 'Ethereum', arbitrum: 'Arbitrum', bsc: 'BNB Chain' };
+        toast(`Please switch to ${chainNames[usdtChain]} in MetaMask`, 'error');
+        return null;
+      }
+    }
+
+    toast('Confirm USDT transfer in MetaMask...', 'success');
+
+    // USDT uses 6 decimals on ETH and ARB, 18 decimals on BSC
+    const decimals = usdtChain === 'bsc' ? 18 : 6;
+    const amountRaw = BigInt(Math.floor(usdtAmount * (10 ** decimals)));
+    const amountHex = '0x' + amountRaw.toString(16).padStart(64, '0');
+
+    // Treasury address padded to 32 bytes
+    const treasury = TREASURY[usdtChain] || TREASURY.ethereum;
+    const toPadded = treasury.toLowerCase().replace('0x', '').padStart(64, '0');
+
+    // Build ERC20 transfer(address,uint256) calldata
+    const data = ERC20_TRANSFER_ABI + toPadded + amountHex;
+
+    const txHash = await wallet.provider.request({
+      method: 'eth_sendTransaction',
+      params: [{
+        from: wallet.address,
+        to: usdtContract,
+        data: data,
+        value: '0x0', // no native value for token transfer
+      }],
+    });
+
+    toast('USDT transaction submitted!', 'success');
+
+    // Register with gateway
+    await fetch(`${API}/payments/crosschain/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tx_hash: txHash,
+        chain: usdtChain,
+        payer: wallet.address,
+        amount_thr_equivalent: costThr,
+        service_type: 'builder_build',
+        fee_action: 'stake_and_mint',
+        token_symbol: 'USDT',
+      }),
+    }).catch(() => {}); // non-blocking
+
+    return {
+      type: 'evm_token_tx',
+      tx_hash: txHash,
+      chain: usdtChain,
+      token: 'USDT',
+      token_contract: usdtContract,
+      payer: wallet.address,
+      amount_usdt: usdtAmount,
+      amount_thr_equivalent: costThr,
+      timestamp: Date.now(),
+    };
+
+  } catch (err) {
+    if (err.code === 4001) {
+      toast('Transaction rejected by user', 'error');
+    } else {
+      toast('USDT payment failed: ' + err.message, 'error');
+    }
+    return null;
+  }
+}
+
 function calculateThrCost(form) {
   if (!pricingData) return 10;
   const platform = form.platform.value;
@@ -804,7 +951,7 @@ async function loadPricing() {
         <li>GitHub / GitLab / ZIP source</li>
         <li>Real-time build logs</li>
         <li>IPFS artifact storage</li>
-        <li>Pay with THR, ETH, USDC, BNB</li>
+        <li>Pay with THR, ETH, USDT, USDC, BNB</li>
       </ul>
     </div>
     <div class="price-card">
@@ -816,7 +963,7 @@ async function loadPricing() {
         <li>Signed & optimized</li>
         <li>Real-time build logs</li>
         <li>IPFS artifact storage</li>
-        <li>Pay with THR, ETH, USDC, BNB</li>
+        <li>Pay with THR, ETH, USDT, USDC, BNB</li>
       </ul>
     </div>
     <div class="price-card">
@@ -828,7 +975,7 @@ async function loadPricing() {
         <li>Ad-hoc & App Store distribution</li>
         <li>Real-time build logs</li>
         <li>IPFS artifact storage</li>
-        <li>Pay with THR, ETH, USDC, BNB</li>
+        <li>Pay with THR, ETH, USDT, USDC, BNB</li>
       </ul>
     </div>
     <div class="price-card" style="border-color:var(--accent)">
