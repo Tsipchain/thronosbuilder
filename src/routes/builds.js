@@ -4,7 +4,16 @@ const { v4: uuidv4 } = require('uuid');
 const { BuildJob, User } = require('../models');
 const { addBuildJob } = require('../services/queue');
 const { calculateCost } = require('../utils/pricing');
-const { verifyPayment } = require('../services/blockchain');
+const {
+  validateThrAddress,
+  getBalance,
+  verifyPayment,
+  requestBuildPayment,
+  authenticateWallet,
+  recordBuildPayment,
+  refundPayment,
+  TREASURY_ADDRESS,
+} = require('../services/blockchain');
 
 // List builds for a wallet
 router.get('/', async (req, res) => {
@@ -13,6 +22,14 @@ router.get('/', async (req, res) => {
 
     if (!wallet_address) {
       return res.status(400).json({ error: 'wallet_address query parameter required' });
+    }
+
+    // Validate THR address format
+    if (!validateThrAddress(wallet_address)) {
+      return res.status(400).json({
+        error: 'Invalid THR wallet address',
+        format: 'THR + 40 hex characters (e.g. THR1234567890abcdef1234567890abcdef12345678)',
+      });
     }
 
     const user = await User.findOne({ where: { wallet_address } });
@@ -49,23 +66,71 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Check wallet balance and validate before payment
+router.post('/preflight', async (req, res) => {
+  try {
+    const { wallet_address, platform, build_type } = req.body;
+
+    if (!wallet_address) {
+      return res.status(400).json({ error: 'wallet_address required' });
+    }
+
+    // Validate address format
+    if (!validateThrAddress(wallet_address)) {
+      return res.status(400).json({
+        error: 'Invalid THR wallet address format',
+        hint: 'THR address must be THR followed by 40 hex characters',
+      });
+    }
+
+    // Calculate cost
+    const cost_thron = calculateCost(platform || 'android', build_type || 'apk');
+
+    // Check balance on chain
+    const balanceResult = await getBalance(wallet_address);
+
+    // Authenticate wallet
+    const authResult = await authenticateWallet(wallet_address);
+
+    res.json({
+      wallet_address,
+      address_valid: true,
+      authenticated: authResult.success,
+      balance: balanceResult.success ? balanceResult.balance : null,
+      balance_error: balanceResult.success ? null : balanceResult.error,
+      cost_thron,
+      can_afford: balanceResult.success && balanceResult.balance >= cost_thron,
+      treasury_address: TREASURY_ADDRESS,
+      fee_estimate: cost_thron * 0.005, // 0.5% transfer fee
+    });
+  } catch (error) {
+    console.error('Preflight error:', error);
+    res.status(500).json({ error: 'Preflight check failed' });
+  }
+});
+
 // Submit new build job
 router.post('/', async (req, res) => {
   try {
-    const { 
-      wallet_address, 
-      source_url, 
+    const {
+      wallet_address,
+      source_url,
       source_type = 'github',
       branch = 'main',
       platform,
       build_type,
       project_name,
-      signing_config = {}
+      signing_config = {},
+      // Payment fields
+      auth_secret,
+      passphrase,
+      tx_id, // Pre-existing tx from client-side payment
+      payment_method = 'thronos', // thronos | metamask | phantom
     } = req.body;
 
     // Validation
     if (!wallet_address || !source_url || !platform || !build_type || !project_name) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Missing required fields',
         required: ['wallet_address', 'source_url', 'platform', 'build_type', 'project_name']
       });
@@ -74,21 +139,75 @@ router.post('/', async (req, res) => {
     // Calculate cost
     const cost_thron = calculateCost(platform, build_type);
 
+    // ─── Payment Verification ───
+
+    let paymentResult;
+
+    if (payment_method === 'thronos') {
+      // THR native payment: validate address first
+      if (!validateThrAddress(wallet_address)) {
+        return res.status(400).json({
+          error: 'Invalid THR wallet address',
+          hint: 'THR address format: THR + 40 hex characters',
+        });
+      }
+
+      if (tx_id) {
+        // User already sent payment, verify the transaction
+        paymentResult = await verifyPayment(wallet_address, cost_thron, tx_id);
+        if (!paymentResult.success) {
+          return res.status(402).json({
+            error: 'Payment transaction verification failed',
+            detail: paymentResult.error,
+            tx_id,
+          });
+        }
+      } else if (auth_secret) {
+        // Server-side payment: send THR from user wallet to treasury
+        paymentResult = await requestBuildPayment(
+          wallet_address, cost_thron, auth_secret, passphrase
+        );
+        if (!paymentResult.success) {
+          return res.status(402).json({
+            error: 'Payment failed',
+            detail: paymentResult.error,
+            required_amount: cost_thron,
+            treasury_address: TREASURY_ADDRESS,
+          });
+        }
+      } else {
+        // No auth_secret and no tx_id: check balance only
+        paymentResult = await verifyPayment(wallet_address, cost_thron);
+        if (!paymentResult.success) {
+          return res.status(402).json({
+            error: 'Insufficient THR balance',
+            detail: paymentResult.error,
+            required_amount: cost_thron,
+            treasury_address: TREASURY_ADDRESS,
+            hint: 'Send THR to treasury address or provide auth_secret for automatic payment',
+          });
+        }
+      }
+    } else {
+      // Cross-chain payment (MetaMask/Phantom): verify tx_id exists
+      if (!tx_id) {
+        return res.status(402).json({
+          error: 'Transaction hash required for cross-chain payment',
+          hint: 'Complete the payment transaction and provide tx_id',
+        });
+      }
+      // Cross-chain tx verification is handled client-side
+      // We trust the tx_id for now; webhook/oracle can verify later
+      paymentResult = { success: true, txId: tx_id, method: 'cross_chain' };
+    }
+
+    // ─── Create Build Job ───
+
     // Find or create user
     let [user] = await User.findOrCreate({
       where: { wallet_address },
       defaults: { id: uuidv4(), wallet_address }
     });
-
-    // Verify payment (placeholder - integrate with ThronosChain)
-    const paymentVerified = await verifyPayment(wallet_address, cost_thron);
-    if (!paymentVerified.success) {
-      return res.status(402).json({ 
-        error: 'Payment verification failed',
-        required_amount: cost_thron,
-        message: 'Please pay the required THR amount before submitting build'
-      });
-    }
 
     // Create build job
     const job = await BuildJob.create({
@@ -104,7 +223,10 @@ router.post('/', async (req, res) => {
       status: 'pending'
     });
 
-    // Add to queue
+    // Record payment on chain
+    await recordBuildPayment(job.id, wallet_address, cost_thron, paymentResult.txId);
+
+    // Add to build queue
     await addBuildJob(job.id, {
       jobId: job.id,
       sourceUrl: source_url,
@@ -120,6 +242,7 @@ router.post('/', async (req, res) => {
       job_id: job.id,
       status: 'pending',
       cost_thron,
+      payment_tx: paymentResult.txId || null,
       message: 'Build job submitted successfully',
       websocket_url: `/ws/builds/${job.id}`
     });

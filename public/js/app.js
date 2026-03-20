@@ -575,6 +575,20 @@ async function updateCost() {
   }
 }
 
+// ─── Preflight Check (validates wallet + balance before build) ──────────
+async function preflightCheck(walletAddress, platform, buildType) {
+  try {
+    const res = await fetch(`${API}/builds/preflight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wallet_address: walletAddress, platform, build_type: buildType }),
+    });
+    return await res.json();
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
 // ─── Submit Build (with cross-chain payment) ───────────────────────────
 async function submitBuild(e) {
   e.preventDefault();
@@ -587,6 +601,33 @@ async function submitBuild(e) {
   const paymentMethod = form.payment_method?.value || 'thr';
 
   try {
+    // Step 0: Preflight — validate wallet & balance for THR payments
+    if (paymentMethod === 'thr' || wallet.type === 'thronos') {
+      btn.textContent = 'Checking wallet...';
+      const preflight = await preflightCheck(
+        wallet.address, form.platform.value, form.build_type.value
+      );
+
+      if (preflight.error) {
+        toast(preflight.error + (preflight.hint ? ' — ' + preflight.hint : ''), 'error');
+        return;
+      }
+
+      if (!preflight.address_valid) {
+        toast('Invalid THR wallet address. Format: THR + 40 hex chars', 'error');
+        return;
+      }
+
+      if (preflight.balance !== null && !preflight.can_afford) {
+        toast(
+          `Insufficient balance: ${preflight.balance} THR. ` +
+          `Need: ${preflight.cost_thron} THR (+ ~${(preflight.fee_estimate || 0).toFixed(4)} fee)`,
+          'error'
+        );
+        return;
+      }
+    }
+
     // Step 1: For cross-chain payments, process payment first
     let paymentProof = null;
 
@@ -613,6 +654,7 @@ async function submitBuild(e) {
       payment_method: paymentMethod,
       payment_chain: wallet.chain,
       payment_proof: paymentProof,
+      tx_id: paymentProof?.txHash || paymentProof?.signature || undefined,
     };
 
     const res = await fetch(`${API}/builds`, {
@@ -628,7 +670,7 @@ async function submitBuild(e) {
       closeNewBuild();
       openBuildDetail(data.job_id);
     } else {
-      toast(data.error || 'Submission failed', 'error');
+      toast(data.error || data.detail || 'Submission failed', 'error');
     }
   } catch (err) {
     toast('Error: ' + err.message, 'error');
