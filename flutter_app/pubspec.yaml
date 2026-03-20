@@ -1,0 +1,71 @@
+name: thronos_driver_app
+description: Thronos 2-in-1 Driver Platform & Verify ID Mobile App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  # State Management
+  provider: ^6.1.2
+  # HTTP & API
+  http: ^1.2.0
+  dio: ^5.4.0
+  web_socket_channel: ^2.4.0
+  # Navigation
+  go_router: ^14.0.0
+  # Maps & Location
+  google_maps_flutter: ^2.6.0
+  geolocator: ^11.0.0
+  geocoding: ^3.0.0
+  # Local Storage
+  shared_preferences: ^2.2.3
+  flutter_secure_storage: ^9.0.0
+  # UI
+  flutter_svg: ^2.0.10
+  cached_network_image: ^3.3.1
+  shimmer: ^3.0.0
+  flutter_animate: ^4.5.0
+  # Camera & Media
+  camera: ^0.11.0
+  image_picker: ^1.0.7
+  # Blockchain
+  web3dart: ^2.7.3
+  # Authentication
+  local_auth: ^2.2.0
+  # QR Code
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^5.1.0
+  # Notifications
+  flutter_local_notifications: ^17.0.0
+  # Video Call
+  agora_rtc_engine: ^6.3.0
+  # Utils
+  intl: ^0.19.0
+  uuid: ^4.3.3
+  url_launcher: ^6.2.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
+  fonts:
+    - family: ThronosFont
+      fonts:
+        - asset: assets/fonts/Poppins-Regular.ttf
+        - asset: assets/fonts/Poppins-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Poppins-Medium.ttf
+          weight: 500
