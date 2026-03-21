@@ -24,14 +24,6 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ error: 'wallet_address query parameter required' });
     }
 
-    // Validate THR address format
-    if (!validateThrAddress(wallet_address)) {
-      return res.status(400).json({
-        error: 'Invalid THR wallet address',
-        format: 'THR + 40 hex characters (e.g. THR1234567890abcdef1234567890abcdef12345678)',
-      });
-    }
-
     const user = await User.findOne({ where: { wallet_address } });
     if (!user) {
       return res.json({ builds: [] });
@@ -125,7 +117,7 @@ router.post('/', async (req, res) => {
       auth_secret,
       passphrase,
       tx_id, // Pre-existing tx from client-side payment
-      payment_method = 'thronos', // thronos | metamask | phantom
+      payment_method = 'thr', // thr | thronos | eth | bnb | usdt_evm | usdc_sol
     } = req.body;
 
     // Validation
@@ -143,7 +135,7 @@ router.post('/', async (req, res) => {
 
     let paymentResult;
 
-    if (payment_method === 'thronos') {
+    if (payment_method === 'thronos' || payment_method === 'thr') {
       // THR native payment: validate address first
       if (!validateThrAddress(wallet_address)) {
         return res.status(400).json({
