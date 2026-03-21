@@ -4,17 +4,15 @@ const { broadcastToJob } = require('../utils/websocket');
 const { buildAndroid } = require('./androidBuilder');
 const { buildIOS } = require('./iosBuilder');
 
-// Initialize queues
-const buildQueue = new Queue('build jobs', process.env.REDIS_URL);
+// Track Redis connectivity
+let redisConnected = false;
+let buildQueue = null;
 
-// Process jobs
-buildQueue.process(async (job, done) => {
-  const { jobId, platform, sourceUrl, sourceType, branch, buildType, signingConfig } = job.data;
-
+// ─── Build processor logic (shared by queue and inline) ─────────────
+async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, buildType, signingConfig }) {
   try {
     console.log(`🚀 Processing build job ${jobId} for platform: ${platform}`);
 
-    // Update status
     await BuildJob.update(
       { status: 'building', started_at: new Date() },
       { where: { id: jobId } }
@@ -76,8 +74,8 @@ buildQueue.process(async (job, done) => {
 
     if (result.success) {
       await BuildJob.update(
-        { 
-          status: 'success', 
+        {
+          status: 'success',
           completed_at: new Date(),
           progress: 100,
           android_artifact_url: result.androidUrl || null,
@@ -88,66 +86,114 @@ buildQueue.process(async (job, done) => {
 
       broadcastToJob(jobId, {
         event: 'build.complete',
-        data: { 
-          job_id: jobId, 
+        data: {
+          job_id: jobId,
           status: 'success',
           android_url: result.androidUrl,
           ios_url: result.iosUrl
         }
       });
 
-      done(null, result);
+      return result;
     } else {
       throw new Error(result.error || 'Build failed');
     }
 
   } catch (error) {
-    console.error(`❌ Build job ${jobId} failed:`, error);
+    console.error(`❌ Build job ${jobId} failed:`, error.message);
 
     await BuildJob.update(
       { status: 'failed', completed_at: new Date() },
       { where: { id: jobId } }
-    );
+    ).catch(() => {});
 
     broadcastToJob(jobId, {
       event: 'build.error',
       data: { job_id: jobId, error: error.message }
     });
 
-    done(error);
+    throw error;
   }
-});
+}
 
-// Add job to queue
+// ─── Initialize Redis queue (if available) ──────────────────────────
+try {
+  if (process.env.REDIS_URL) {
+    buildQueue = new Queue('build jobs', process.env.REDIS_URL);
+
+    buildQueue.on('ready', () => {
+      redisConnected = true;
+      console.log('✅ Redis queue connected');
+    });
+
+    buildQueue.on('error', (err) => {
+      if (redisConnected) {
+        console.error('❌ Redis queue error:', err.message);
+      }
+      redisConnected = false;
+    });
+
+    // Register queue processor
+    buildQueue.process(async (job, done) => {
+      try {
+        const result = await processBuild(job.data);
+        done(null, result);
+      } catch (error) {
+        done(error);
+      }
+    });
+  } else {
+    console.log('⚠️  No REDIS_URL configured — builds will run inline (no queue)');
+  }
+} catch (err) {
+  console.error('⚠️  Failed to initialize Redis queue:', err.message);
+  console.log('⚠️  Falling back to inline build processing');
+  buildQueue = null;
+}
+
+// ─── Add job to queue (or process inline) ───────────────────────────
 async function addBuildJob(jobId, data) {
-  await buildQueue.add(data, {
-    jobId,
-    attempts: 2,
-    backoff: {
-      type: 'exponential',
-      delay: 60000
-    },
-    removeOnComplete: 10,
-    removeOnFail: 5
+  // Try Redis queue first
+  if (buildQueue && redisConnected) {
+    try {
+      await buildQueue.add(data, {
+        jobId,
+        attempts: 2,
+        backoff: { type: 'exponential', delay: 60000 },
+        removeOnComplete: 10,
+        removeOnFail: 5
+      });
+      console.log(`✅ Build job ${jobId} added to Redis queue`);
+      return;
+    } catch (err) {
+      console.error(`⚠️  Failed to add job to Redis queue: ${err.message}`);
+      console.log(`⚠️  Falling back to inline processing for job ${jobId}`);
+    }
+  }
+
+  // Fallback: process inline (async — don't block the response)
+  console.log(`🔧 Processing build job ${jobId} inline (no Redis)`);
+  processBuild(data).catch(err => {
+    console.error(`❌ Inline build job ${jobId} failed:`, err.message);
   });
-  console.log(`✅ Build job ${jobId} added to queue`);
 }
 
 // Get queue status
 async function getQueueStatus() {
-  const [waiting, active, completed, failed] = await Promise.all([
-    buildQueue.getWaitingCount(),
-    buildQueue.getActiveCount(),
-    buildQueue.getCompletedCount(),
-    buildQueue.getFailedCount()
-  ]);
-
-  return {
-    waiting,
-    active,
-    completed,
-    failed
-  };
+  if (buildQueue && redisConnected) {
+    try {
+      const [waiting, active, completed, failed] = await Promise.all([
+        buildQueue.getWaitingCount(),
+        buildQueue.getActiveCount(),
+        buildQueue.getCompletedCount(),
+        buildQueue.getFailedCount()
+      ]);
+      return { waiting, active, completed, failed, mode: 'redis' };
+    } catch {
+      return { waiting: 0, active: 0, completed: 0, failed: 0, mode: 'redis_error' };
+    }
+  }
+  return { waiting: 0, active: 0, completed: 0, failed: 0, mode: 'inline' };
 }
 
 module.exports = {
