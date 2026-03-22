@@ -118,23 +118,34 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, bu
 }
 
 // ─── Initialize Redis queue (if available) ──────────────────────────
-try {
-  if (process.env.REDIS_URL) {
-    buildQueue = new Queue('build jobs', process.env.REDIS_URL);
+function initRedisQueue() {
+  if (!process.env.REDIS_URL) {
+    console.log('⚠️  No REDIS_URL configured — builds will run inline (no queue)');
+    return;
+  }
 
-    buildQueue.on('ready', () => {
+  try {
+    const queue = new Queue('build jobs', process.env.REDIS_URL, {
+      redis: { maxRetriesPerRequest: 3, retryStrategy: (times) => times > 3 ? null : Math.min(times * 1000, 5000) },
+      settings: { stalledInterval: 60000 }
+    });
+
+    queue.on('ready', () => {
       redisConnected = true;
+      redisError = null;
+      buildQueue = queue;
       console.log('✅ Redis queue connected');
     });
 
-    buildQueue.on('error', (err) => {
+    queue.on('error', (err) => {
       console.error('❌ Redis queue error:', err.message);
       redisError = err.message;
       redisConnected = false;
+      // Don't crash — inline fallback will handle builds
     });
 
     // Register queue processor
-    buildQueue.process(async (job, done) => {
+    queue.process(async (job, done) => {
       try {
         const result = await processBuild(job.data);
         done(null, result);
@@ -142,14 +153,28 @@ try {
         done(error);
       }
     });
-  } else {
-    console.log('⚠️  No REDIS_URL configured — builds will run inline (no queue)');
+
+    buildQueue = queue;
+  } catch (err) {
+    console.error('⚠️  Failed to initialize Redis queue:', err.message);
+    console.log('⚠️  Falling back to inline build processing');
+    buildQueue = null;
   }
-} catch (err) {
-  console.error('⚠️  Failed to initialize Redis queue:', err.message);
-  console.log('⚠️  Falling back to inline build processing');
-  buildQueue = null;
 }
+
+// Catch unhandled Redis errors globally so they don't crash the process
+process.on('unhandledRejection', (reason) => {
+  if (reason && reason.message && (reason.message.includes('NOAUTH') || reason.message.includes('ECONNREFUSED') || reason.message.includes('ENOTFOUND'))) {
+    console.error('⚠️  Redis connection failed:', reason.message);
+    redisConnected = false;
+    redisError = reason.message;
+    return; // Don't crash
+  }
+  // Re-throw non-Redis errors
+  console.error('Unhandled rejection:', reason);
+});
+
+initRedisQueue();
 
 // ─── Add job to queue (or process inline) ───────────────────────────
 async function addBuildJob(jobId, data) {
