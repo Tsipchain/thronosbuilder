@@ -6,6 +6,7 @@ const { buildIOS } = require('./iosBuilder');
 
 // Track Redis connectivity
 let redisConnected = false;
+let redisError = null;
 let buildQueue = null;
 
 // ─── Build processor logic (shared by queue and inline) ─────────────
@@ -127,9 +128,8 @@ try {
     });
 
     buildQueue.on('error', (err) => {
-      if (redisConnected) {
-        console.error('❌ Redis queue error:', err.message);
-      }
+      console.error('❌ Redis queue error:', err.message);
+      redisError = err.message;
       redisConnected = false;
     });
 
@@ -196,8 +196,38 @@ async function getQueueStatus() {
   return { waiting: 0, active: 0, completed: 0, failed: 0, mode: 'inline' };
 }
 
+// Retry a stuck build by processing it inline
+async function retryBuild(jobId) {
+  const job = await BuildJob.findByPk(jobId);
+  if (!job) return { success: false, error: 'Job not found' };
+  if (job.status === 'success') return { success: false, error: 'Job already completed' };
+
+  // Reset to pending and process inline
+  await BuildJob.update(
+    { status: 'pending', progress: 0, started_at: null, completed_at: null },
+    { where: { id: jobId } }
+  );
+
+  console.log(`🔄 Retrying build job ${jobId} inline`);
+  processBuild({
+    jobId,
+    platform: job.platform,
+    sourceUrl: job.source_url,
+    sourceType: job.source_type,
+    branch: job.branch || 'main',
+    buildType: job.build_type,
+    signingConfig: {},
+  }).catch(err => {
+    console.error(`❌ Retry build ${jobId} failed:`, err.message);
+  });
+
+  return { success: true, message: 'Build retry started' };
+}
+
 module.exports = {
   buildQueue,
   addBuildJob,
-  getQueueStatus
+  getQueueStatus,
+  retryBuild,
+  getRedisStatus: () => ({ connected: redisConnected, error: redisError }),
 };

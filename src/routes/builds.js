@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const { BuildJob, User } = require('../models');
-const { addBuildJob } = require('../services/queue');
+const { addBuildJob, retryBuild, getRedisStatus } = require('../services/queue');
 const { calculateCost } = require('../utils/pricing');
 const {
   validateThrAddress,
@@ -338,6 +338,28 @@ router.post('/:jobId/cancel', async (req, res) => {
     console.error('Cancel job error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Retry a stuck/failed build
+router.post('/:jobId/retry', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const result = await retryBuild(jobId);
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('Retry build error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Queue/Redis status (debug)
+router.get('/system/status', async (req, res) => {
+  const redis = getRedisStatus();
+  res.json({ redis, queue_mode: redis.connected ? 'redis' : 'inline' });
 });
 
 // Download artifact
