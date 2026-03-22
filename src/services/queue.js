@@ -37,13 +37,13 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, bu
         signingConfig,
         onProgress: (progress, message) => {
           broadcastToJob(jobId, {
-            event: 'build.progress',
+            event: 'progress',
             data: { job_id: jobId, progress, message }
           });
         },
         onLog: (logLine, logType = 'info') => {
           broadcastToJob(jobId, {
-            event: 'build.log',
+            event: 'log',
             data: { job_id: jobId, line: logLine, type: logType }
           });
         }
@@ -60,13 +60,13 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, bu
         signingConfig,
         onProgress: (progress, message) => {
           broadcastToJob(jobId, {
-            event: 'build.progress',
+            event: 'progress',
             data: { job_id: jobId, progress, message }
           });
         },
         onLog: (logLine, logType = 'info') => {
           broadcastToJob(jobId, {
-            event: 'build.log',
+            event: 'log',
             data: { job_id: jobId, line: logLine, type: logType }
           });
         }
@@ -86,7 +86,7 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, bu
       );
 
       broadcastToJob(jobId, {
-        event: 'build.complete',
+        event: 'complete',
         data: {
           job_id: jobId,
           status: 'success',
@@ -109,7 +109,7 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, bu
     ).catch(() => {});
 
     broadcastToJob(jobId, {
-      event: 'build.error',
+      event: 'error',
       data: { job_id: jobId, error: error.message }
     });
 
