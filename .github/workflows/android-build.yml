@@ -1,0 +1,129 @@
+name: Android Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Build job ID'
+        required: true
+      source_url:
+        description: 'Git repository URL to build'
+        required: true
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'main'
+      build_type:
+        description: 'Build type (apk or aab)'
+        required: true
+        default: 'apk'
+      callback_url:
+        description: 'Callback URL to notify on completion'
+        required: false
+
+jobs:
+  build:
+    name: "Android Build - ${{ github.event.inputs.job_id }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Clone source repository
+        run: |
+          git clone --branch ${{ github.event.inputs.branch }} --depth 1 \
+            ${{ github.event.inputs.source_url }} source
+
+      - name: Detect project structure
+        id: detect
+        run: |
+          if [ -f "source/pubspec.yaml" ]; then
+            echo "project_dir=source" >> $GITHUB_OUTPUT
+            echo "type=flutter" >> $GITHUB_OUTPUT
+          elif [ -f "source/flutter_app/pubspec.yaml" ]; then
+            echo "project_dir=source/flutter_app" >> $GITHUB_OUTPUT
+            echo "type=flutter" >> $GITHUB_OUTPUT
+          elif [ -f "source/mobile/pubspec.yaml" ]; then
+            echo "project_dir=source/mobile" >> $GITHUB_OUTPUT
+            echo "type=flutter" >> $GITHUB_OUTPUT
+          elif [ -f "source/app_flutter/pubspec.yaml" ]; then
+            echo "project_dir=source/app_flutter" >> $GITHUB_OUTPUT
+            echo "type=flutter" >> $GITHUB_OUTPUT
+          elif [ -f "source/gradlew" ]; then
+            echo "project_dir=source" >> $GITHUB_OUTPUT
+            echo "type=gradle" >> $GITHUB_OUTPUT
+          else
+            echo "No supported project structure found" >&2
+            exit 1
+          fi
+
+      - name: Install Flutter dependencies
+        if: steps.detect.outputs.type == 'flutter'
+        working-directory: ${{ steps.detect.outputs.project_dir }}
+        run: flutter pub get
+
+      - name: Build Flutter APK
+        if: steps.detect.outputs.type == 'flutter' && github.event.inputs.build_type == 'apk'
+        working-directory: ${{ steps.detect.outputs.project_dir }}
+        run: flutter build apk --release
+
+      - name: Build Flutter AAB
+        if: steps.detect.outputs.type == 'flutter' && github.event.inputs.build_type == 'aab'
+        working-directory: ${{ steps.detect.outputs.project_dir }}
+        run: flutter build appbundle --release
+
+      - name: Build Gradle APK
+        if: steps.detect.outputs.type == 'gradle' && github.event.inputs.build_type == 'apk'
+        working-directory: ${{ steps.detect.outputs.project_dir }}
+        run: ./gradlew assembleRelease
+
+      - name: Build Gradle AAB
+        if: steps.detect.outputs.type == 'gradle' && github.event.inputs.build_type == 'aab'
+        working-directory: ${{ steps.detect.outputs.project_dir }}
+        run: ./gradlew bundleRelease
+
+      - name: Find artifact
+        id: artifact
+        run: |
+          PROJECT_DIR="${{ steps.detect.outputs.project_dir }}"
+          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+
+          if [ "$BUILD_TYPE" = "aab" ]; then
+            ARTIFACT=$(find "$PROJECT_DIR" -name "*.aab" -path "*/release/*" | head -1)
+          else
+            ARTIFACT=$(find "$PROJECT_DIR" -name "*.apk" -path "*/release/*" | head -1)
+          fi
+
+          if [ -z "$ARTIFACT" ]; then
+            echo "No artifact found!" >&2
+            exit 1
+          fi
+
+          echo "path=$ARTIFACT" >> $GITHUB_OUTPUT
+          echo "Found artifact: $ARTIFACT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-artifact
+          path: ${{ steps.artifact.outputs.path }}
+          retention-days: 7
+
+      - name: Notify callback
+        if: github.event.inputs.callback_url != ''
+        run: |
+          curl -s -X POST "${{ github.event.inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"job_id\": \"${{ github.event.inputs.job_id }}\", \"status\": \"completed\"}" \
+            || true
