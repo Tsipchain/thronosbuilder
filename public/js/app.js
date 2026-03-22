@@ -464,6 +464,7 @@ function renderBuilds(builds) {
       <div class="build-actions">
         ${b.status === 'success' ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); downloadArtifact('${b.job_id}', '${b.platform}')">Download</button>` : ''}
         ${b.status === 'building' || b.status === 'pending' ? `<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); cancelBuild('${b.job_id}')">Cancel</button>` : ''}
+        ${b.status === 'pending' || b.status === 'failed' ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); retryBuild('${b.job_id}')">Retry</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -687,6 +688,10 @@ async function updateCost() {
     const bnbCost = (costThr * 0.00008).toFixed(6);
     costEl.textContent = `~${bnbCost} BNB`;
     feeInfo.style.display = 'block';
+  } else if (paymentMethod === 'btc_bridge') {
+    const btcCost = (costThr * 0.0000008).toFixed(8); // 1 THR ≈ 0.0000008 BTC
+    costEl.textContent = `~${btcCost} BTC (via SHA-256 Bridge)`;
+    feeInfo.style.display = 'block';
   }
 }
 
@@ -817,8 +822,75 @@ async function processCrossChainPayment(method, form) {
     return await processUsdtPayment(form);
   } else if (method === 'eth' || method === 'bnb') {
     return await processEVMPayment(method, form);
+  } else if (method === 'btc_bridge') {
+    return await processBtcBridgePayment(form);
   }
   return null;
+}
+
+// ─── BTC Bridge Payment (SHA-256 compatible) ────────────────────────
+async function processBtcBridgePayment(form) {
+  const costThr = calculateThrCost(form);
+  const btcAmount = (costThr * 0.0000008).toFixed(8);
+
+  // Request bridge deposit address from Thronos chain
+  try {
+    toast('Requesting BTC bridge deposit address...', 'success');
+
+    const res = await fetch(`${API}/payments/btc-bridge/prepare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payer_thr: wallet.address,
+        amount_thr_equivalent: costThr,
+        amount_btc: parseFloat(btcAmount),
+        service_type: 'builder_build',
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      // Show BTC deposit address to user
+      const btcAddr = data.btc_deposit_address;
+      const confirmed = confirm(
+        `Send exactly ${btcAmount} BTC to:\n\n${btcAddr}\n\n` +
+        `The SHA-256 bridge will convert to ${costThr} THR automatically.\n` +
+        `Click OK after sending the BTC transaction.`
+      );
+      if (!confirmed) return null;
+
+      return {
+        type: 'btc_bridge',
+        btc_deposit_address: btcAddr,
+        amount_btc: parseFloat(btcAmount),
+        amount_thr_equivalent: costThr,
+        payer_thr: wallet.address,
+        bridge_id: data.bridge_id,
+        timestamp: Date.now(),
+      };
+    }
+
+    // Fallback: manual BTC tx hash input
+    const txHash = prompt(
+      `BTC Bridge Payment\n\n` +
+      `Amount: ${btcAmount} BTC (= ${costThr} THR)\n\n` +
+      `Send BTC to the Thronos SHA-256 bridge and paste the BTC transaction hash:`
+    );
+    if (!txHash) return null;
+
+    return {
+      type: 'btc_bridge',
+      txHash: txHash.trim(),
+      amount_btc: parseFloat(btcAmount),
+      amount_thr_equivalent: costThr,
+      payer_thr: wallet.address,
+      timestamp: Date.now(),
+    };
+
+  } catch (err) {
+    toast('BTC bridge error: ' + err.message, 'error');
+    return null;
+  }
 }
 
 // ─── Phantom/Solana USDC Payment ───────────────────────────────────────
@@ -1091,6 +1163,22 @@ async function cancelBuild(jobId) {
       loadBuilds();
     } else {
       toast('Failed to cancel', 'error');
+    }
+  } catch (e) {
+    toast('Network error', 'error');
+  }
+}
+
+async function retryBuild(jobId) {
+  try {
+    toast('Retrying build...', 'success');
+    const res = await fetch(`${API}/builds/${jobId}/retry`, { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      toast('Build retry started!', 'success');
+      openBuildDetail(jobId);
+    } else {
+      toast(data.error || 'Retry failed', 'error');
     }
   } catch (e) {
     toast('Network error', 'error');

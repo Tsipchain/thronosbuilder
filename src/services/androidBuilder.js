@@ -24,6 +24,15 @@ async function buildAndroid({
     // Create build directory
     fs.mkdirSync(buildDir, { recursive: true });
 
+    // Check for required tools
+    let hasFlutter = false;
+    let hasGradleSystem = false;
+    try { execSync('flutter --version', { stdio: 'pipe' }); hasFlutter = true; } catch {}
+    try { execSync('gradle --version', { stdio: 'pipe' }); hasGradleSystem = true; } catch {}
+
+    onLog(`Build environment: Flutter=${hasFlutter}, Gradle=${hasGradleSystem}`, 'info');
+    onLog(`ANDROID_HOME=${process.env.ANDROID_HOME || 'not set'}`, 'info');
+
     // Clone repository
     onProgress(20, 'Cloning repository...');
     onLog(`Cloning from ${sourceUrl}`, 'info');
@@ -56,6 +65,13 @@ async function buildAndroid({
       // Flutter build
       onProgress(30, 'Detected Flutter project...');
       onLog('Detected Flutter project (pubspec.yaml found)', 'info');
+
+      if (!hasFlutter) {
+        throw new Error(
+          'Flutter SDK not installed on this build server. ' +
+          'Please use the Docker-based builder (Dockerfile.android) or contact support.'
+        );
+      }
 
       // Install Flutter dependencies
       onProgress(35, 'Running flutter pub get...');
