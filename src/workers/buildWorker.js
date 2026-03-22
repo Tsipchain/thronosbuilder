@@ -35,13 +35,13 @@ buildQueue.process(CONCURRENCY, async (job) => {
     );
 
     broadcastToJob(jobId, {
-      event: 'build.status',
+      event: 'status',
       data: { job_id: jobId, status: 'building', progress: 0 }
     });
 
     const onProgress = (progress, message) => {
       broadcastToJob(jobId, {
-        event: 'build.progress',
+        event: 'progress',
         data: { job_id: jobId, progress, message }
       });
     };
@@ -49,7 +49,7 @@ buildQueue.process(CONCURRENCY, async (job) => {
     const onLog = (logLine, logType = 'info') => {
       addLog(jobId, logLine, logType);
       broadcastToJob(jobId, {
-        event: 'build.log',
+        event: 'log',
         data: { job_id: jobId, line: logLine, type: logType }
       });
     };
@@ -112,7 +112,7 @@ buildQueue.process(CONCURRENCY, async (job) => {
     );
 
     broadcastToJob(jobId, {
-      event: 'build.complete',
+      event: 'complete',
       data: {
         job_id: jobId,
         status: 'success',
@@ -132,7 +132,7 @@ buildQueue.process(CONCURRENCY, async (job) => {
     );
 
     broadcastToJob(jobId, {
-      event: 'build.error',
+      event: 'error',
       data: { job_id: jobId, error: error.message }
     });
 

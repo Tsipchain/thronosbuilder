@@ -586,6 +586,19 @@ function connectBuildWs(jobId) {
         toast(`Build ${msg.data.status}!`, msg.data.status === 'success' ? 'success' : 'error');
         ws.close();
       }
+
+      if (msg.event === 'error') {
+        document.getElementById('liveIndicator').style.display = 'none';
+        document.getElementById('detailBadge').className = 'badge badge-failed';
+        document.getElementById('detailBadge').textContent = 'failed';
+        const consoleEl = document.getElementById('buildConsole');
+        const div = document.createElement('div');
+        div.className = 'log-line error';
+        div.textContent = `ERROR: ${msg.data.error}`;
+        consoleEl.appendChild(div);
+        toast('Build failed!', 'error');
+        ws.close();
+      }
     } catch (e) { /* ignore parse errors */ }
   };
 
