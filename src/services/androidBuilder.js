@@ -1,79 +1,12 @@
-const { execSync, spawn } = require('child_process');
+const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const simpleGit = require('simple-git');
 const { uploadToStorage } = require('./storage');
 const { addLog } = require('../utils/logger');
 
-// Docker image name for Flutter builds
-const FLUTTER_DOCKER_IMAGE = 'thronosbuilder-flutter';
-
-/**
- * Check if Docker is available and build the Flutter Docker image if needed.
- */
-function ensureDockerImage(onLog) {
-  try {
-    execSync('docker --version', { stdio: 'pipe' });
-  } catch {
-    throw new Error('Neither Flutter SDK nor Docker is available on this build server.');
-  }
-
-  // Check if image exists
-  try {
-    execSync(`docker image inspect ${FLUTTER_DOCKER_IMAGE}`, { stdio: 'pipe' });
-    onLog('Docker Flutter image found', 'info');
-  } catch {
-    // Build the image from Dockerfile.android
-    const dockerfilePath = path.join(__dirname, '../../docker/Dockerfile.android');
-    if (!fs.existsSync(dockerfilePath)) {
-      throw new Error('Dockerfile.android not found. Cannot build Flutter Docker image.');
-    }
-    onLog('Building Docker Flutter image (first time only, this may take a few minutes)...', 'info');
-    execSync(`docker build -t ${FLUTTER_DOCKER_IMAGE} -f "${dockerfilePath}" "${path.dirname(dockerfilePath)}"`, {
-      stdio: 'pipe',
-      timeout: 600000 // 10 min timeout for image build
-    });
-    onLog('Docker Flutter image built successfully', 'success');
-  }
-}
-
-/**
- * Run a Flutter build inside a Docker container.
- */
-function runDockerFlutterBuild({ buildDir, flutterDir, buildType, onLog, onProgress }) {
-  const relativeFlutterDir = path.relative(buildDir, flutterDir) || '.';
-
-  onProgress(35, 'Running Flutter build in Docker container...');
-  onLog('Using Docker-based Flutter builder', 'info');
-
-  const buildCmd = buildType === 'aab'
-    ? 'flutter build appbundle --release'
-    : 'flutter build apk --release';
-
-  const workdir = relativeFlutterDir === '.' ? '/build' : `/build/${relativeFlutterDir}`;
-
-  // Run flutter pub get + build inside Docker
-  const dockerCmd = [
-    'docker', 'run', '--rm',
-    '-v', `${buildDir}:/build`,
-    '-w', workdir,
-    FLUTTER_DOCKER_IMAGE,
-    'bash', '-c', `flutter pub get && ${buildCmd}`
-  ].join(' ');
-
-  onLog(`Docker build command: flutter pub get && ${buildCmd}`, 'info');
-
-  execSync(dockerCmd, {
-    stdio: 'pipe',
-    timeout: 900000 // 15 min timeout for build
-  });
-
-  const artifactPath = buildType === 'aab'
-    ? path.join(flutterDir, 'build/app/outputs/bundle/release/app-release.aab')
-    : path.join(flutterDir, 'build/app/outputs/flutter-apk/app-release.apk');
-
-  return artifactPath;
-}
+const ANDROID_SDK_DIR = process.env.ANDROID_HOME || '/opt/android-sdk';
+const FLUTTER_HOME = process.env.FLUTTER_HOME || '/opt/flutter';
 
 async function buildAndroid({
   jobId,
@@ -101,7 +34,20 @@ async function buildAndroid({
     try { execSync('gradle --version', { stdio: 'pipe' }); hasGradleSystem = true; } catch {}
 
     onLog(`Build environment: Flutter=${hasFlutter}, Gradle=${hasGradleSystem}`, 'info');
-    onLog(`ANDROID_HOME=${process.env.ANDROID_HOME || 'not set'}`, 'info');
+    onLog(`ANDROID_HOME=${ANDROID_SDK_DIR}`, 'info');
+    onLog(`FLUTTER_HOME=${FLUTTER_HOME}`, 'info');
+
+    if (!hasFlutter) {
+      onLog('WARNING: Flutter SDK not found in PATH. Builds for Flutter projects will fail.', 'warning');
+    }
+
+    // Build environment with correct paths
+    const buildEnv = {
+      ...process.env,
+      ANDROID_HOME: ANDROID_SDK_DIR,
+      FLUTTER_HOME: FLUTTER_HOME,
+      PATH: `${FLUTTER_HOME}/bin:${ANDROID_SDK_DIR}/cmdline-tools/latest/bin:${ANDROID_SDK_DIR}/platform-tools:${process.env.PATH}`
+    };
 
     // Clone repository
     onProgress(20, 'Cloning repository...');
@@ -136,40 +82,48 @@ async function buildAndroid({
       onProgress(30, 'Detected Flutter project...');
       onLog('Detected Flutter project (pubspec.yaml found)', 'info');
 
-      if (hasFlutter) {
-        // Use local Flutter SDK
-        onProgress(35, 'Running flutter pub get...');
-        execSync('flutter pub get', {
-          cwd: flutterDir,
-          stdio: 'pipe',
-          env: { ...process.env, ANDROID_HOME: process.env.ANDROID_HOME || '/opt/android-sdk' }
-        });
-        onLog('Flutter dependencies installed', 'success');
+      // Use flutter from PATH or from FLUTTER_HOME
+      const flutterBin = hasFlutter ? 'flutter' : path.join(FLUTTER_HOME, 'bin', 'flutter');
 
-        // Build APK or AAB
-        onProgress(50, `Building Flutter ${buildType.toUpperCase()}...`);
-        if (buildType === 'aab') {
-          execSync('flutter build appbundle --release', {
-            cwd: flutterDir,
-            stdio: 'pipe',
-            env: { ...process.env, ANDROID_HOME: process.env.ANDROID_HOME || '/opt/android-sdk' }
-          });
-          artifactPath = path.join(flutterDir, 'build/app/outputs/bundle/release/app-release.aab');
-        } else {
-          execSync('flutter build apk --release', {
-            cwd: flutterDir,
-            stdio: 'pipe',
-            env: { ...process.env, ANDROID_HOME: process.env.ANDROID_HOME || '/opt/android-sdk' }
-          });
-          artifactPath = path.join(flutterDir, 'build/app/outputs/flutter-apk/app-release.apk');
-        }
-      } else {
-        // Fallback to Docker-based Flutter build
-        onLog('Flutter SDK not found locally, switching to Docker-based builder...', 'warning');
-        ensureDockerImage(onLog);
-        artifactPath = runDockerFlutterBuild({ buildDir, flutterDir, buildType, onLog, onProgress });
+      // Verify Flutter is actually available
+      try {
+        execSync(`${flutterBin} --version`, { stdio: 'pipe', env: buildEnv, timeout: 30000 });
+      } catch {
+        throw new Error(
+          'Flutter SDK not available. The build server must have Flutter pre-installed. ' +
+          'Ensure the Dockerfile includes Flutter SDK installation.'
+        );
       }
 
+      // Install Flutter dependencies
+      onProgress(35, 'Running flutter pub get...');
+      execSync(`${flutterBin} pub get`, {
+        cwd: flutterDir,
+        stdio: 'pipe',
+        timeout: 120000,
+        env: buildEnv
+      });
+      onLog('Flutter dependencies installed', 'success');
+
+      // Build APK or AAB
+      onProgress(50, `Building Flutter ${buildType.toUpperCase()}...`);
+      if (buildType === 'aab') {
+        execSync(`${flutterBin} build appbundle --release`, {
+          cwd: flutterDir,
+          stdio: 'pipe',
+          timeout: 600000,
+          env: buildEnv
+        });
+        artifactPath = path.join(flutterDir, 'build/app/outputs/bundle/release/app-release.aab');
+      } else {
+        execSync(`${flutterBin} build apk --release`, {
+          cwd: flutterDir,
+          stdio: 'pipe',
+          timeout: 600000,
+          env: buildEnv
+        });
+        artifactPath = path.join(flutterDir, 'build/app/outputs/flutter-apk/app-release.apk');
+      }
       onLog(`Flutter ${buildType.toUpperCase()} built successfully`, 'success');
 
     } else if (hasGradle) {
@@ -184,7 +138,7 @@ async function buildAndroid({
       execSync(gradleCmd, {
         cwd: buildDir,
         stdio: 'pipe',
-        env: { ...process.env, ANDROID_HOME: process.env.ANDROID_HOME || '/opt/android-sdk' }
+        env: buildEnv
       });
 
       artifactPath = buildType === 'aab'
