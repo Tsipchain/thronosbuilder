@@ -227,16 +227,25 @@ async function retryBuild(jobId) {
   if (!job) return { success: false, error: 'Job not found' };
   if (job.status === 'success') return { success: false, error: 'Job already completed' };
 
+  // Apply iOS guard: downgrade 'both' or 'ios' to 'android'
+  let effectivePlatform = job.platform;
+  if (effectivePlatform === 'ios') {
+    return { success: false, error: 'iOS builds are not yet available.' };
+  }
+  if (effectivePlatform === 'both') {
+    effectivePlatform = 'android';
+  }
+
   // Reset to pending and process inline
   await BuildJob.update(
-    { status: 'pending', progress: 0, started_at: null, completed_at: null },
+    { status: 'pending', progress: 0, platform: effectivePlatform, started_at: null, completed_at: null },
     { where: { id: jobId } }
   );
 
   console.log(`🔄 Retrying build job ${jobId} inline`);
   processBuild({
     jobId,
-    platform: job.platform,
+    platform: effectivePlatform,
     sourceUrl: job.source_url,
     sourceType: job.source_type,
     branch: job.branch || 'main',
