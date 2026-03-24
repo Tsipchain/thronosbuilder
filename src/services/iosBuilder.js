@@ -57,7 +57,7 @@ async function buildIOS({
     );
 
     const workflowRun = runs.data.workflow_runs.find(
-      run => run.name === `iOS Build - ${jobId}` || run.run_number > Date.now() / 1000 - 60
+      run => run.name === `iOS Build - ${jobId}` || new Date(run.created_at) > new Date(Date.now() - 60000)
     );
 
     if (!workflowRun) {
