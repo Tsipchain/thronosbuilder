@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { BuildJob, User } = require('../models');
 const { addBuildJob, retryBuild, getRedisStatus } = require('../services/queue');
@@ -128,8 +129,23 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // iOS build guard — iOS is not yet available
+    if (platform === 'ios') {
+      return res.status(400).json({
+        error: 'iOS builds are not yet available. Android builds are fully supported.',
+        supported_platforms: ['android']
+      });
+    }
+
+    let effectivePlatform = platform;
+    let iosNote = null;
+    if (platform === 'both') {
+      effectivePlatform = 'android';
+      iosNote = 'iOS builds are not yet available. Your build has been submitted for Android only.';
+    }
+
     // Calculate cost
-    const cost_thron = calculateCost(platform, build_type);
+    const cost_thron = calculateCost(effectivePlatform, build_type);
 
     // ─── Payment Verification ───
 
@@ -209,7 +225,7 @@ router.post('/', async (req, res) => {
       source_url,
       branch,
       build_type,
-      platform,
+      platform: effectivePlatform,
       cost_thron,
       payment_status: 'paid',
       status: 'pending'
@@ -224,20 +240,27 @@ router.post('/', async (req, res) => {
       sourceUrl: source_url,
       sourceType: source_type,
       branch,
-      platform,
+      platform: effectivePlatform,
       buildType: build_type,
       signingConfig: signing_config
     });
 
-    res.status(201).json({
+    const responseBody = {
       success: true,
       job_id: job.id,
       status: 'pending',
+      platform: effectivePlatform,
       cost_thron,
       payment_tx: paymentResult.txId || null,
       message: 'Build job submitted successfully',
       websocket_url: `/ws/builds/${job.id}`
-    });
+    };
+
+    if (iosNote) {
+      responseBody.ios_note = iosNote;
+    }
+
+    res.status(201).json(responseBody);
 
   } catch (error) {
     console.error('Build submission error:', error);
@@ -387,6 +410,34 @@ router.get('/:jobId/download/:platform', async (req, res) => {
     console.error('Download error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Serve locally stored artifacts
+router.get('/artifacts/*', (req, res) => {
+  const localStoragePath = process.env.LOCAL_STORAGE_PATH;
+  if (!localStoragePath) {
+    return res.status(404).json({ error: 'Local storage not configured' });
+  }
+
+  const key = req.params[0];
+  if (!key) {
+    return res.status(400).json({ error: 'Artifact key required' });
+  }
+
+  const filePath = path.resolve(localStoragePath, key);
+
+  // Prevent directory traversal
+  if (!filePath.startsWith(path.resolve(localStoragePath))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      if (!res.headersSent) {
+        res.status(404).json({ error: 'Artifact not found' });
+      }
+    }
+  });
 });
 
 module.exports = router;
