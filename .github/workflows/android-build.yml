@@ -42,12 +42,21 @@ jobs:
 
       - name: Clone source repository
         run: |
+          # Inject token for private GitHub repos
+          SOURCE_URL="${{ github.event.inputs.source_url }}"
+          if [[ "$SOURCE_URL" == *"github.com"* ]]; then
+            SOURCE_URL=$(echo "$SOURCE_URL" | sed "s|https://github.com|https://x-access-token:${{ github.token }}@github.com|")
+          fi
           git clone --branch ${{ github.event.inputs.branch }} --depth 1 \
-            ${{ github.event.inputs.source_url }} source
+            "$SOURCE_URL" source
 
       - name: Detect project structure
         id: detect
         run: |
+          echo "=== Repository contents ==="
+          ls -la source/
+
+          # Check known Flutter project locations
           if [ -f "source/pubspec.yaml" ]; then
             echo "project_dir=source" >> $GITHUB_OUTPUT
             echo "type=flutter" >> $GITHUB_OUTPUT
@@ -60,12 +69,25 @@ jobs:
           elif [ -f "source/app_flutter/pubspec.yaml" ]; then
             echo "project_dir=source/app_flutter" >> $GITHUB_OUTPUT
             echo "type=flutter" >> $GITHUB_OUTPUT
+          elif [ -f "source/android/pubspec.yaml" ]; then
+            echo "project_dir=source/android" >> $GITHUB_OUTPUT
+            echo "type=flutter" >> $GITHUB_OUTPUT
           elif [ -f "source/gradlew" ]; then
             echo "project_dir=source" >> $GITHUB_OUTPUT
             echo "type=gradle" >> $GITHUB_OUTPUT
           else
-            echo "No supported project structure found" >&2
-            exit 1
+            # Search deeper for pubspec.yaml
+            FOUND=$(find source -name "pubspec.yaml" -maxdepth 3 | head -1)
+            if [ -n "$FOUND" ]; then
+              DIR=$(dirname "$FOUND")
+              echo "project_dir=$DIR" >> $GITHUB_OUTPUT
+              echo "type=flutter" >> $GITHUB_OUTPUT
+              echo "Auto-detected Flutter project at: $DIR"
+            else
+              echo "::error::No Flutter (pubspec.yaml) or Gradle (gradlew) project found in repository"
+              echo "Files in source:" && find source -maxdepth 2 -type f | head -30
+              exit 1
+            fi
           fi
 
       - name: Install Flutter dependencies
