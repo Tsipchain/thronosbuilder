@@ -34,38 +34,125 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Clone source repository
+        run: |
+          SOURCE_URL="${{ github.event.inputs.source_url }}"
+
+          # Handle GitHub tree URLs (e.g. github.com/user/repo/tree/branch/subdir)
+          SUBDIR=""
+          if [[ "$SOURCE_URL" == *"/tree/"* ]]; then
+            REPO_PART=$(echo "$SOURCE_URL" | sed -E 's|(https://github.com/[^/]+/[^/]+)/tree/.*|\1|')
+            BRANCH_AND_PATH=$(echo "$SOURCE_URL" | sed -E 's|https://github.com/[^/]+/[^/]+/tree/||')
+            BRANCH_NAME=$(echo "$BRANCH_AND_PATH" | cut -d'/' -f1)
+            SUBDIR=$(echo "$BRANCH_AND_PATH" | cut -d'/' -f2-)
+            SOURCE_URL="$REPO_PART"
+            echo "Detected tree URL - repo: $REPO_PART, branch: $BRANCH_NAME, subdir: $SUBDIR"
+          fi
+
+          # Inject token for private GitHub repos
+          if [[ "$SOURCE_URL" == *"github.com"* ]]; then
+            SOURCE_URL=$(echo "$SOURCE_URL" | sed "s|https://github.com|https://x-access-token:${{ github.token }}@github.com|")
+          fi
+
+          git clone --branch ${{ github.event.inputs.branch }} --depth 1 \
+            "$SOURCE_URL" source_full
+
+          # If subdir was specified, use only that subdirectory
+          if [ -n "$SUBDIR" ] && [ -d "source_full/$SUBDIR" ]; then
+            echo "Using subdirectory: $SUBDIR"
+            cp -r "source_full/$SUBDIR" source
+          else
+            mv source_full source
+          fi
+
+      - name: Detect project structure
+        id: detect
+        run: |
+          echo "=== Repository contents ==="
+          ls -la source/
+
+          PROJECT_TYPE="unknown"
+          PROJECT_DIR="source"
+
+          # --- 1. Check for Expo / React Native ---
+          if [ -f "source/package.json" ]; then
+            if grep -q '"expo"' source/package.json 2>/dev/null || [ -f "source/app.json" ]; then
+              if grep -q '"expo"' source/package.json 2>/dev/null; then
+                PROJECT_TYPE="expo"
+                echo "Detected Expo (React Native) project"
+              fi
+            fi
+            if [ "$PROJECT_TYPE" = "unknown" ] && grep -q '"react-native"' source/package.json 2>/dev/null; then
+              PROJECT_TYPE="react-native"
+              echo "Detected React Native project"
+            fi
+          fi
+
+          # --- 2. Check for Flutter ---
+          if [ "$PROJECT_TYPE" = "unknown" ]; then
+            FLUTTER_LOCATIONS=(
+              "source"
+              "source/flutter_app"
+              "source/mobile"
+              "source/app_flutter"
+            )
+            for loc in "${FLUTTER_LOCATIONS[@]}"; do
+              if [ -f "$loc/pubspec.yaml" ]; then
+                PROJECT_DIR="$loc"
+                PROJECT_TYPE="flutter"
+                echo "Found Flutter project at: $loc"
+                break
+              fi
+            done
+            # Deep search
+            if [ "$PROJECT_TYPE" = "unknown" ]; then
+              FOUND=$(find source -name "pubspec.yaml" -maxdepth 3 | head -1)
+              if [ -n "$FOUND" ]; then
+                PROJECT_DIR=$(dirname "$FOUND")
+                PROJECT_TYPE="flutter"
+                echo "Auto-detected Flutter project at: $PROJECT_DIR"
+              fi
+            fi
+          fi
+
+          # --- 3. Check for standalone Gradle ---
+          if [ "$PROJECT_TYPE" = "unknown" ] && [ -f "source/gradlew" ]; then
+            PROJECT_TYPE="gradle"
+            echo "Detected native Android (Gradle) project"
+          fi
+
+          if [ "$PROJECT_TYPE" = "unknown" ]; then
+            echo "::error::No supported project found. ThronosBuild supports: Flutter, React Native/Expo, Android Gradle."
+            echo "Files found:" && find source -maxdepth 3 -type f | head -40
+            exit 1
+          fi
+
+          echo "project_dir=$PROJECT_DIR" >> $GITHUB_OUTPUT
+          echo "type=$PROJECT_TYPE" >> $GITHUB_OUTPUT
+          echo "Detected project type: $PROJECT_TYPE at $PROJECT_DIR"
+
+      # ────────── Flutter Setup ──────────
+
       - name: Set up Flutter
+        if: steps.detect.outputs.type == 'flutter'
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
-      - name: Clone source repository
+      - name: Ensure Flutter Android project exists
+        if: steps.detect.outputs.type == 'flutter'
+        working-directory: ${{ steps.detect.outputs.project_dir }}
         run: |
-          git clone --branch ${{ github.event.inputs.branch }} --depth 1 \
-            ${{ github.event.inputs.source_url }} source
-
-      - name: Detect project structure
-        id: detect
-        run: |
-          if [ -f "source/pubspec.yaml" ]; then
-            echo "project_dir=source" >> $GITHUB_OUTPUT
-            echo "type=flutter" >> $GITHUB_OUTPUT
-          elif [ -f "source/flutter_app/pubspec.yaml" ]; then
-            echo "project_dir=source/flutter_app" >> $GITHUB_OUTPUT
-            echo "type=flutter" >> $GITHUB_OUTPUT
-          elif [ -f "source/mobile/pubspec.yaml" ]; then
-            echo "project_dir=source/mobile" >> $GITHUB_OUTPUT
-            echo "type=flutter" >> $GITHUB_OUTPUT
-          elif [ -f "source/app_flutter/pubspec.yaml" ]; then
-            echo "project_dir=source/app_flutter" >> $GITHUB_OUTPUT
-            echo "type=flutter" >> $GITHUB_OUTPUT
-          elif [ -f "source/gradlew" ]; then
-            echo "project_dir=source" >> $GITHUB_OUTPUT
-            echo "type=gradle" >> $GITHUB_OUTPUT
-          else
-            echo "No supported project structure found" >&2
-            exit 1
+          if [ ! -f "android/app/build.gradle" ] || [ ! -f "android/settings.gradle" ]; then
+            echo "::warning::Android project structure missing or incomplete. Regenerating..."
+            APP_NAME=$(grep "^name:" pubspec.yaml | sed 's/name: *//' | tr -d ' \r')
+            TEMP_DIR=$(mktemp -d)
+            flutter create --org io.thronos --project-name "$APP_NAME" --platforms android "$TEMP_DIR/temp_app"
+            rm -rf android
+            cp -r "$TEMP_DIR/temp_app/android" android/
+            rm -rf "$TEMP_DIR"
+            echo "Android project structure regenerated"
           fi
 
       - name: Install Flutter dependencies
@@ -83,30 +170,68 @@ jobs:
         working-directory: ${{ steps.detect.outputs.project_dir }}
         run: flutter build appbundle --release
 
+      # ────────── React Native / Expo Setup ──────────
+
+      - name: Set up Node.js
+        if: steps.detect.outputs.type == 'expo' || steps.detect.outputs.type == 'react-native'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: source/package-lock.json
+
+      - name: Install JS dependencies
+        if: steps.detect.outputs.type == 'expo' || steps.detect.outputs.type == 'react-native'
+        working-directory: source
+        run: npm install
+
+      - name: Expo prebuild (generate android/)
+        if: steps.detect.outputs.type == 'expo'
+        working-directory: source
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Build React Native / Expo APK
+        if: (steps.detect.outputs.type == 'expo' || steps.detect.outputs.type == 'react-native') && github.event.inputs.build_type == 'apk'
+        working-directory: source/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Build React Native / Expo AAB
+        if: (steps.detect.outputs.type == 'expo' || steps.detect.outputs.type == 'react-native') && github.event.inputs.build_type == 'aab'
+        working-directory: source/android
+        run: |
+          chmod +x gradlew
+          ./gradlew bundleRelease
+
+      # ────────── Native Gradle ──────────
+
       - name: Build Gradle APK
         if: steps.detect.outputs.type == 'gradle' && github.event.inputs.build_type == 'apk'
-        working-directory: ${{ steps.detect.outputs.project_dir }}
+        working-directory: source
         run: ./gradlew assembleRelease
 
       - name: Build Gradle AAB
         if: steps.detect.outputs.type == 'gradle' && github.event.inputs.build_type == 'aab'
-        working-directory: ${{ steps.detect.outputs.project_dir }}
+        working-directory: source
         run: ./gradlew bundleRelease
+
+      # ────────── Artifact & Callback ──────────
 
       - name: Find artifact
         id: artifact
         run: |
-          PROJECT_DIR="${{ steps.detect.outputs.project_dir }}"
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
 
           if [ "$BUILD_TYPE" = "aab" ]; then
-            ARTIFACT=$(find "$PROJECT_DIR" -name "*.aab" -path "*/release/*" | head -1)
+            ARTIFACT=$(find source -name "*.aab" -path "*/release/*" 2>/dev/null | head -1)
           else
-            ARTIFACT=$(find "$PROJECT_DIR" -name "*.apk" -path "*/release/*" | head -1)
+            ARTIFACT=$(find source -name "*.apk" -path "*/release/*" 2>/dev/null | head -1)
           fi
 
           if [ -z "$ARTIFACT" ]; then
             echo "No artifact found!" >&2
+            find source -name "*.apk" -o -name "*.aab" | head -10
             exit 1
           fi
 
@@ -121,9 +246,13 @@ jobs:
           retention-days: 7
 
       - name: Notify callback
-        if: github.event.inputs.callback_url != ''
+        if: always() && github.event.inputs.callback_url != ''
         run: |
+          STATUS="completed"
+          if [ "${{ job.status }}" != "success" ]; then
+            STATUS="failed"
+          fi
           curl -s -X POST "${{ github.event.inputs.callback_url }}" \
             -H "Content-Type: application/json" \
-            -d "{\"job_id\": \"${{ github.event.inputs.job_id }}\", \"status\": \"completed\"}" \
+            -d "{\"job_id\": \"${{ github.event.inputs.job_id }}\", \"status\": \"$STATUS\"}" \
             || true
