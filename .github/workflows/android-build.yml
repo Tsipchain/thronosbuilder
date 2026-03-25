@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -174,7 +174,7 @@ jobs:
 
       - name: Set up Node.js
         if: steps.detect.outputs.type == 'expo' || steps.detect.outputs.type == 'react-native'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
@@ -192,17 +192,39 @@ jobs:
         if: steps.detect.outputs.type == 'expo'
         working-directory: source/android
         run: |
+          KOTLIN_VERSION="1.9.24"
+
           # Ensure Kotlin version is compatible with expo-modules-core
           if [ -f "gradle.properties" ]; then
             if grep -q "kotlinVersion" gradle.properties; then
-              sed -i 's/kotlinVersion=.*/kotlinVersion=1.9.24/' gradle.properties
+              sed -i "s/kotlinVersion=.*/kotlinVersion=$KOTLIN_VERSION/" gradle.properties
             else
-              echo "kotlinVersion=1.9.24" >> gradle.properties
+              echo "kotlinVersion=$KOTLIN_VERSION" >> gradle.properties
             fi
           fi
-          # Also patch build.gradle if needed
+
+          # Patch Groovy Gradle scripts when present
           if [ -f "build.gradle" ]; then
-            sed -i 's/ext.kotlinVersion = .*/ext.kotlinVersion = "1.9.24"/' build.gradle
+            sed -i "s/ext.kotlinVersion = .*/ext.kotlinVersion = \"$KOTLIN_VERSION\"/" build.gradle
+            sed -i "s/org.jetbrains.kotlin:kotlin-gradle-plugin:[0-9.][0-9.]*/org.jetbrains.kotlin:kotlin-gradle-plugin:$KOTLIN_VERSION/" build.gradle
+          fi
+
+          # Patch Kotlin/Groovy plugin DSL versions in root files used by newer RN/Expo templates
+          if [ -f "settings.gradle" ]; then
+            sed -E -i "s/id\\([\"']org\\.jetbrains\\.kotlin\\.android[\"']\\) version [\"'][0-9.]+[\"']/id(\"org.jetbrains.kotlin.android\") version \"$KOTLIN_VERSION\"/g" settings.gradle
+            sed -E -i "s/id\\([\"']org\\.jetbrains\\.kotlin\\.jvm[\"']\\) version [\"'][0-9.]+[\"']/id(\"org.jetbrains.kotlin.jvm\") version \"$KOTLIN_VERSION\"/g" settings.gradle
+          fi
+          if [ -f "settings.gradle.kts" ]; then
+            sed -E -i "s/id\\([\"']org\\.jetbrains\\.kotlin\\.android[\"']\\) version [\"'][0-9.]+[\"']/id(\"org.jetbrains.kotlin.android\") version \"$KOTLIN_VERSION\"/g" settings.gradle.kts
+            sed -E -i "s/id\\([\"']org\\.jetbrains\\.kotlin\\.jvm[\"']\\) version [\"'][0-9.]+[\"']/id(\"org.jetbrains.kotlin.jvm\") version \"$KOTLIN_VERSION\"/g" settings.gradle.kts
+          fi
+
+          echo "Pinned Kotlin toolchain to $KOTLIN_VERSION where applicable"
+          for file in gradle.properties build.gradle settings.gradle settings.gradle.kts; do
+            if [ -f "$file" ]; then
+              echo "--- $file ---"
+              grep -nE "kotlinVersion|kotlin-gradle-plugin|org\\.jetbrains\\.kotlin\\.(android|jvm)" "$file" || true
+            fi
           fi
 
       - name: Build React Native / Expo APK
