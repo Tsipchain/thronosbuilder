@@ -188,6 +188,23 @@ jobs:
         working-directory: source
         run: npx expo prebuild --platform android --no-install
 
+      - name: Fix Expo Kotlin compatibility
+        if: steps.detect.outputs.type == 'expo'
+        working-directory: source/android
+        run: |
+          # Ensure Kotlin version is compatible with expo-modules-core
+          if [ -f "gradle.properties" ]; then
+            if grep -q "kotlinVersion" gradle.properties; then
+              sed -i 's/kotlinVersion=.*/kotlinVersion=1.9.24/' gradle.properties
+            else
+              echo "kotlinVersion=1.9.24" >> gradle.properties
+            fi
+          fi
+          # Also patch build.gradle if needed
+          if [ -f "build.gradle" ]; then
+            sed -i 's/ext.kotlinVersion = .*/ext.kotlinVersion = "1.9.24"/' build.gradle
+          fi
+
       - name: Build React Native / Expo APK
         if: (steps.detect.outputs.type == 'expo' || steps.detect.outputs.type == 'react-native') && github.event.inputs.build_type == 'apk'
         working-directory: source/android
