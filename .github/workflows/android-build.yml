@@ -225,7 +225,7 @@ jobs:
               echo "--- $file ---"
               grep -nE "kotlinVersion|kotlin-gradle-plugin|org\\.jetbrains\\.kotlin\\.(android|jvm)" "$file" || true
             fi
-          fi
+          done
 
       - name: Build React Native / Expo APK
         if: (steps.detect.outputs.type == 'expo' || steps.detect.outputs.type == 'react-native') && github.event.inputs.build_type == 'apk'
