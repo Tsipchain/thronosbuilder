@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { BuildJob } = require('../models');
 
+// SECURITY: Phase 0 — require API key on all status routes
+const { requireApiKey } = require('../middleware/auth');
+router.use(requireApiKey);
+
 // Get pricing
 router.get('/pricing', (req, res) => {
   const { getPricing } = require('../utils/pricing');
