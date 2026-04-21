@@ -6,6 +6,15 @@ const helmet = require('helmet');
 const { createServer } = require('http');
 const { WebSocketServer } = require('ws');
 const { setupWebSocket } = require('./utils/websocket');
+
+// SECURITY: Phase 0 — fail-fast on missing critical env vars
+const REQUIRED_ENV_VARS = ['GITHUB_TOKEN', 'DATABASE_URL', 'BUILDER_API_KEY'];
+const missing = REQUIRED_ENV_VARS.filter(v => !process.env[v]);
+if (missing.length > 0) {
+  console.error(`FATAL: Missing required environment variables: ${missing.join(', ')}`);
+  process.exit(1);
+}
+
 const { sequelize } = require('./models');
 const buildRoutes = require('./routes/builds');
 const statusRoutes = require('./routes/status');
@@ -13,9 +22,21 @@ const statusRoutes = require('./routes/status');
 const app = express();
 const server = createServer(app);
 
+// SECURITY: Phase 0 — restrict CORS to known domains
+const corsOptions = {
+    origin: [
+        'https://thronoschain.org',
+        'https://builder.thronoschain.org',
+        'https://api.thronoschain.org',
+        'https://commerce.thronoschain.org',
+    ],
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
+};
+
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 

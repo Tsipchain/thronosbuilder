@@ -16,6 +16,10 @@ const {
   TREASURY_ADDRESS,
 } = require('../services/blockchain');
 
+// SECURITY: Phase 0 — require API key on all build routes
+const { requireApiKey } = require('../middleware/auth');
+router.use(requireApiKey);
+
 // List builds for a wallet
 router.get('/', async (req, res) => {
   try {
