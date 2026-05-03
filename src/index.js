@@ -56,6 +56,16 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Public config flags for frontend/service checks
+app.get('/api/v1/public/config', (req, res) => {
+  res.json({
+    status: 'ok',
+    pricing_public: true,
+    build_submit_public: true,
+    auth_required_for_admin: true
+  });
+});
+
 // WebSocket setup
 const wss = new WebSocketServer({ server });
 setupWebSocket(wss);
