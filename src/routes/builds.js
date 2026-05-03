@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { BuildJob, User } = require('../models');
@@ -136,6 +137,9 @@ router.post('/', async (req, res) => {
       source_url,
       source_type = 'github',
       branch = 'main',
+      upload_id = null,
+      upload_token = null,
+      project_type = 'auto',
       project_path = null,
       platform,
       build_type,
@@ -149,11 +153,19 @@ router.post('/', async (req, res) => {
     } = req.body;
 
     // Validation
-    if (!wallet_address || !source_url || !platform || !build_type || !project_name) {
+    if (!wallet_address || !platform || !build_type || !project_name) {
       return res.status(400).json({
         error: 'Missing required fields',
         required: ['wallet_address', 'source_url', 'platform', 'build_type', 'project_name']
       });
+    }
+
+    if (source_type !== 'zip' && !source_url) {
+      return res.status(400).json({ error: 'source_url required for non-zip sources' });
+    }
+
+    if (source_type === 'zip' && (!upload_id || !upload_token || !source_url)) {
+      return res.status(400).json({ error: 'upload_id, upload_token and source_url are required for zip builds' });
     }
 
     // iOS build guard — iOS is not yet available
@@ -260,6 +272,9 @@ router.post('/', async (req, res) => {
       project_name,
       source_type,
       source_url,
+      upload_id,
+      upload_token,
+      project_type,
       branch,
       project_path,
       build_type,
@@ -279,6 +294,9 @@ router.post('/', async (req, res) => {
       jobId: job.id,
       sourceUrl: source_url,
       sourceType: source_type,
+      uploadId: upload_id,
+      uploadToken: upload_token,
+      projectType: project_type,
       branch,
       projectPath: project_path,
       platform: effectivePlatform,
@@ -553,20 +571,29 @@ router.get('/artifacts/*', (req, res) => {
     return res.status(400).json({ error: 'Artifact key required' });
   }
 
-  const filePath = path.resolve(localStoragePath, key);
+  const rootPath = path.resolve(localStoragePath);
+  const filePath = path.resolve(rootPath, key);
 
   // Prevent directory traversal
-  if (!filePath.startsWith(path.resolve(localStoragePath))) {
+  if (!filePath.startsWith(`${rootPath}${path.sep}`) && filePath !== rootPath) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  res.sendFile(filePath, (err) => {
-    if (err) {
-      if (!res.headersSent) {
-        res.status(404).json({ error: 'Artifact not found' });
-      }
+  const filename = path.basename(filePath);
+  const extension = path.extname(filename).toLowerCase();
+
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  if (extension === '.apk') {
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  }
+
+  const stream = fs.createReadStream(filePath);
+  stream.on('error', () => {
+    if (!res.headersSent) {
+      res.status(404).json({ error: 'Artifact not found' });
     }
   });
+  stream.pipe(res);
 });
 
 module.exports = router;

@@ -15,6 +15,8 @@ async function buildAndroid({
   sourceType,
   branch,
   projectPath,
+  uploadId,
+  projectType,
   buildType,
   signingConfig,
   onProgress,
@@ -35,6 +37,9 @@ async function buildAndroid({
         inputs: {
           job_id: jobId,
           source_url: sourceUrl,
+          source_type: sourceType || 'github',
+          upload_id: uploadId || '',
+          project_type: projectType || 'auto',
           branch: branch || 'main',
           project_path: projectPath || '',
           build_type: buildType || 'apk'
