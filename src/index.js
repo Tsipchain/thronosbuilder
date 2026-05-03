@@ -18,6 +18,7 @@ if (missing.length > 0) {
 const { sequelize } = require('./models');
 const buildRoutes = require('./routes/builds');
 const statusRoutes = require('./routes/status');
+const { cleanupOldArtifacts } = require('./services/storage');
 
 const app = express();
 const server = createServer(app);
@@ -107,6 +108,13 @@ async function startServer() {
 
     await sequelize.sync({ alter: true });
     console.log('✅ Database models synchronized');
+
+    await cleanupOldArtifacts();
+    setInterval(() => {
+      cleanupOldArtifacts().catch((error) => {
+        console.warn('Scheduled artifact cleanup failed:', error.message);
+      });
+    }, 6 * 60 * 60 * 1000);
 
     server.listen(PORT, () => {
       console.log(`🚀 ThronosBuild API running on port ${PORT}`);

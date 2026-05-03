@@ -37,6 +37,10 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, pr
         buildType: buildType === 'both' ? 'apk' : buildType,
         signingConfig,
         onProgress: (progress, message) => {
+          BuildJob.update(
+            { progress: Math.max(0, Math.min(100, Math.round(progress))) },
+            { where: { id: jobId } }
+          ).catch(() => {});
           broadcastToJob(jobId, {
             event: 'progress',
             data: { job_id: jobId, progress, message }
@@ -60,6 +64,10 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, pr
         buildType: buildType === 'both' ? 'ipa' : buildType,
         signingConfig,
         onProgress: (progress, message) => {
+          BuildJob.update(
+            { progress: Math.max(0, Math.min(100, Math.round(progress))) },
+            { where: { id: jobId } }
+          ).catch(() => {});
           broadcastToJob(jobId, {
             event: 'progress',
             data: { job_id: jobId, progress, message }

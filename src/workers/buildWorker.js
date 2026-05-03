@@ -40,6 +40,13 @@ buildQueue.process(CONCURRENCY, async (job) => {
     });
 
     const onProgress = (progress, message) => {
+      BuildJob.update(
+        { progress: Math.max(0, Math.min(100, Math.round(progress))) },
+        { where: { id: jobId } }
+      ).catch((err) => {
+        console.warn(`Failed to persist progress for job ${jobId}: ${err.message}`);
+      });
+
       broadcastToJob(jobId, {
         event: 'progress',
         data: { job_id: jobId, progress, message }
