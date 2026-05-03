@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { BuildJob, User } = require('../models');
@@ -553,20 +554,29 @@ router.get('/artifacts/*', (req, res) => {
     return res.status(400).json({ error: 'Artifact key required' });
   }
 
-  const filePath = path.resolve(localStoragePath, key);
+  const rootPath = path.resolve(localStoragePath);
+  const filePath = path.resolve(rootPath, key);
 
   // Prevent directory traversal
-  if (!filePath.startsWith(path.resolve(localStoragePath))) {
+  if (!filePath.startsWith(`${rootPath}${path.sep}`) && filePath !== rootPath) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  res.sendFile(filePath, (err) => {
-    if (err) {
-      if (!res.headersSent) {
-        res.status(404).json({ error: 'Artifact not found' });
-      }
+  const filename = path.basename(filePath);
+  const extension = path.extname(filename).toLowerCase();
+
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  if (extension === '.apk') {
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  }
+
+  const stream = fs.createReadStream(filePath);
+  stream.on('error', () => {
+    if (!res.headersSent) {
+      res.status(404).json({ error: 'Artifact not found' });
     }
   });
+  stream.pipe(res);
 });
 
 module.exports = router;
