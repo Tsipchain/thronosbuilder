@@ -10,7 +10,6 @@
 </head>
 <body>
 
-  <!-- ─── Navbar ──────────────────────────────────────────────────────── -->
   <nav class="navbar">
     <div class="navbar-brand">
       <div class="logo">T</div>
@@ -27,44 +26,24 @@
     </div>
   </nav>
 
-  <!-- ─── Main Content ────────────────────────────────────────────────── -->
   <main class="main">
 
     <!-- Dashboard Page -->
     <div id="page-dashboard" class="page active">
-
       <div class="hero">
         <h1>Build Mobile Apps on ThronosChain</h1>
         <p>Submit your source code, pay with THR, and get production-ready APK/IPA builds in minutes.</p>
       </div>
-
-      <!-- Stats -->
       <div class="stats-grid" id="statsGrid">
-        <div class="stat-card">
-          <div class="label">Total Builds</div>
-          <div class="value" id="statTotal">-</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Successful</div>
-          <div class="value" id="statSuccess" style="color:var(--green)">-</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">In Progress</div>
-          <div class="value" id="statBuilding" style="color:var(--blue)">-</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Total Spent</div>
-          <div class="value" id="statSpent">-</div>
-          <div class="sub">THR</div>
-        </div>
+        <div class="stat-card"><div class="label">Total Builds</div><div class="value" id="statTotal">-</div></div>
+        <div class="stat-card"><div class="label">Successful</div><div class="value" id="statSuccess" style="color:var(--green)">-</div></div>
+        <div class="stat-card"><div class="label">In Progress</div><div class="value" id="statBuilding" style="color:var(--blue)">-</div></div>
+        <div class="stat-card"><div class="label">Total Spent</div><div class="value" id="statSpent">-</div><div class="sub">THR</div></div>
       </div>
-
-      <!-- Builds List -->
       <div class="section-header">
         <h2>Your Builds</h2>
         <button class="btn btn-primary" id="newBuildBtn">+ New Build</button>
       </div>
-
       <div id="buildsList" class="builds-list">
         <div class="empty-state" id="emptyState">
           <div class="icon">&#128230;</div>
@@ -81,17 +60,12 @@
         <h2 id="detailTitle">Build Details</h2>
         <span class="badge" id="detailBadge"></span>
       </div>
-
       <div class="detail-grid" id="detailGrid"></div>
-
       <div class="section-header">
         <h2>Build Logs</h2>
         <span class="badge badge-building" id="liveIndicator" style="display:none">LIVE</span>
       </div>
-      <div class="console" id="buildConsole">
-        <div class="log-line">Waiting for logs...</div>
-      </div>
-
+      <div class="console" id="buildConsole"><div class="log-line">Waiting for logs...</div></div>
       <div style="margin-top:20px" id="detailActions"></div>
     </div>
 
@@ -102,7 +76,6 @@
         <p>Pay with THR, ETH, USDC (Solana), or any supported token. No subscriptions.</p>
       </div>
       <div class="pricing-grid" id="pricingGrid"></div>
-
       <div style="max-width:700px; margin:24px auto 0;">
         <div class="stat-card">
           <h3 style="margin-bottom:12px">Cross-Chain Payments</h3>
@@ -110,6 +83,10 @@
             ThronosBuild accepts payments across multiple networks. Fees collected on external chains
             are used to mint wrapped THR tokens on those networks while locking native THR in our
             liquidity pools — creating real cross-chain liquidity for the Sentinel trading pools.
+          </p>
+          <p style="font-size:13px; color:var(--text-secondary); margin-top:12px; padding:8px 12px; background:var(--bg-primary); border-radius:6px; border-left:3px solid var(--accent);">
+            <strong>Cross-chain fee split: 50% treasury, 25% burn, 25% LP pools.</strong><br>
+            All external quotes are generated server-side with minimum floor prices to prevent underpricing.
           </p>
           <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-top:16px;">
             <div style="background:var(--bg-primary); border-radius:8px; padding:12px; text-align:center;">
@@ -143,7 +120,7 @@
           <h3 style="margin-bottom:12px">Getting Started</h3>
           <ol style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
             <li>Connect your wallet</li>
-            <li>Click "New Build" and fill in your GitHub repo URL</li>
+            <li>Click "New Build" and choose your source type (GitHub, GitLab, or ZIP Upload)</li>
             <li>Select platform (Android/iOS/Both) and build type</li>
             <li>Confirm payment in THR tokens</li>
             <li>Watch your build in real-time via WebSocket logs</li>
@@ -151,17 +128,43 @@
           </ol>
         </div>
         <div class="stat-card" style="margin-bottom:16px">
-          <h3 style="margin-bottom:12px">Supported Source Types</h3>
+          <h3 style="margin-bottom:12px">GitHub &amp; GitLab Builds</h3>
           <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
-            <li><strong>GitHub</strong> — Public or private repos (with token)</li>
-            <li><strong>GitLab</strong> — Public or private repos</li>
-            <li><strong>ZIP Upload</strong> — Upload your source code directly</li>
+            <li><strong>GitHub</strong> — Public repos work without credentials. Private repos require a Personal Access Token in the URL.</li>
+            <li><strong>GitLab</strong> — Same pattern; use a GitLab Project Access Token.</li>
+            <li>Branch defaults to <code>main</code>; change it to any valid ref.</li>
           </ul>
-          <h3 style="margin-bottom:12px; margin-top:16px">Supported Frameworks</h3>
+        </div>
+        <div class="stat-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">ZIP Upload Builds</h3>
           <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
-            <li><strong>Flutter</strong> — Dart/Flutter apps (pubspec.yaml auto-detected)</li>
-            <li><strong>React Native</strong> — Standard RN or Expo projects</li>
-            <li><strong>Native Android</strong> — Gradle-based Android projects</li>
+            <li>Select <strong>ZIP Upload</strong> as the source type in the New Build modal.</li>
+            <li>Choose a <strong>Project Type</strong> or leave it on Auto-detect.</li>
+            <li>Optionally specify a <strong>Project Path</strong> if your app lives in a subdirectory.</li>
+            <li><strong>Source ZIP is deleted after build completion.</strong></li>
+            <li>Final build artifacts (APK/AAB/IPA) are retained for <strong>7 days</strong>.</li>
+          </ul>
+        </div>
+        <div class="stat-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">Supported Frameworks</h3>
+          <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
+            <li><strong>Flutter</strong> — Dart/Flutter apps (<code>pubspec.yaml</code> auto-detected)</li>
+            <li><strong>React Native</strong> — Standard RN projects</li>
+            <li><strong>Expo</strong> — Managed and bare Expo workflows</li>
+            <li><strong>Capacitor</strong> — Ionic/Capacitor hybrid apps</li>
+            <li><strong>Gradle (Native Android)</strong> — Any standard Gradle-based Android project</li>
+            <li><strong>Unity</strong> — Unity Android APK/AAB export (Android build target required)</li>
+          </ul>
+          <p style="color:var(--text-secondary); font-size:13px; margin-top:8px; padding:8px 12px; background:var(--bg-primary); border-radius:6px; border-left:3px solid var(--blue);">
+            <strong>iOS note:</strong> iOS (IPA) builds require a valid Apple Distribution certificate and provisioning profile. Ad-hoc and App Store distribution are both supported when iOS builds are enabled.
+          </p>
+        </div>
+        <div class="stat-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">Artifact Retention</h3>
+          <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
+            <li>Build artifacts (APK, AAB, IPA) are kept for <strong>7 days</strong> after a successful build.</li>
+            <li>Source ZIPs are <strong>deleted immediately</strong> after build completion.</li>
+            <li>Download your artifacts from the build detail page before they expire.</li>
           </ul>
         </div>
         <div class="stat-card">
@@ -172,7 +175,9 @@
             <div><strong style="color:var(--blue)">GET</strong> /api/v1/builds/:id/logs — Get build logs</div>
             <div><strong style="color:var(--red)">POST</strong> /api/v1/builds/:id/cancel — Cancel build</div>
             <div><strong style="color:var(--blue)">GET</strong> /api/v1/builds/:id/download/:platform — Download artifact</div>
-            <div><strong style="color:var(--blue)">GET</strong> /api/v1/status/pricing — Get pricing</div>
+            <div><strong style="color:var(--green)">POST</strong> /api/v1/builds/preflight — Get validated quote (required for cross-chain)</div>
+            <div><strong style="color:var(--green)">POST</strong> /api/v1/uploads/project-zip — Upload ZIP source</div>
+            <div><strong style="color:var(--blue)">GET</strong> /api/v1/status/pricing — Get THR prices + external floors</div>
             <div><strong style="color:var(--blue)">GET</strong> /api/v1/status/stats — Get system stats</div>
           </div>
         </div>
@@ -180,7 +185,7 @@
     </div>
   </main>
 
-  <!-- ─── New Build Modal ─────────────────────────────────────────────── -->
+  <!-- New Build Modal -->
   <div class="modal-overlay" id="newBuildModal">
     <div class="modal">
       <h2>New Build</h2>
@@ -192,25 +197,48 @@
         <div class="form-row">
           <div class="form-group">
             <label>Source Type</label>
-            <select name="source_type">
+            <select name="source_type" id="sourceTypeSelect">
               <option value="github">GitHub</option>
               <option value="gitlab">GitLab</option>
               <option value="zip">ZIP Upload</option>
             </select>
           </div>
-          <div class="form-group">
+          <div class="form-group" id="branchGroup">
             <label>Branch</label>
             <input type="text" name="branch" value="main" placeholder="main">
           </div>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="sourceUrlGroup">
           <label>Repository URL</label>
-          <input type="text" name="source_url" placeholder="https://github.com/user/repo" required>
+          <input type="text" name="source_url" id="sourceUrlInput" placeholder="https://github.com/user/repo" required>
+        </div>
+        <div class="form-group" id="zipFileGroup" style="display:none">
+          <label>Project ZIP File</label>
+          <input type="file" name="project_zip" accept=".zip">
+          <p style="font-size:12px; color:var(--text-secondary); margin-top:6px;">Upload your project as a .zip archive. Source ZIP is deleted after build. Final artifacts are kept for 7 days.</p>
+        </div>
+        <div class="form-row" id="zipMetaGroup" style="display:none">
+          <div class="form-group">
+            <label>Project Type</label>
+            <select name="project_type">
+              <option value="auto">Auto-detect</option>
+              <option value="capacitor">Capacitor</option>
+              <option value="flutter">Flutter</option>
+              <option value="react-native">React Native</option>
+              <option value="expo">Expo</option>
+              <option value="gradle">Gradle (Native Android)</option>
+              <option value="unity">Unity</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Project Path <span style="font-weight:400; color:var(--text-muted)">(optional)</span></label>
+            <input type="text" name="project_path" placeholder="frontend or mobile/app">
+          </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>Platform</label>
-            <select name="platform" onchange="updateCost()">
+            <select name="platform" id="platformSelect" onchange="updateCost()">
               <option value="android">Android</option>
               <option value="ios">iOS</option>
               <option value="both">Both (Android + iOS)</option>
@@ -231,53 +259,34 @@
             <label class="payment-option selected" data-method="thr">
               <input type="radio" name="payment_method" value="thr" checked>
               <div class="pm-icon">T</div>
-              <div class="pm-info">
-                <span class="pm-name">THR</span>
-                <span class="pm-chain">ThronosChain</span>
-              </div>
+              <div class="pm-info"><span class="pm-name">THR</span><span class="pm-chain">ThronosChain</span></div>
             </label>
             <label class="payment-option" data-method="eth">
               <input type="radio" name="payment_method" value="eth">
               <div class="pm-icon" style="background:linear-gradient(135deg,#627eea,#3b5998)">E</div>
-              <div class="pm-info">
-                <span class="pm-name">ETH</span>
-                <span class="pm-chain">Ethereum</span>
-              </div>
+              <div class="pm-info"><span class="pm-name">ETH</span><span class="pm-chain">Ethereum</span></div>
             </label>
             <label class="payment-option" data-method="usdt_evm">
               <input type="radio" name="payment_method" value="usdt_evm">
               <div class="pm-icon" style="background:linear-gradient(135deg,#26A17B,#1a7a5a)">&#8366;</div>
-              <div class="pm-info">
-                <span class="pm-name">USDT</span>
-                <span class="pm-chain">ETH / ARB / BNB</span>
-              </div>
+              <div class="pm-info"><span class="pm-name">USDT</span><span class="pm-chain">ETH / ARB / BNB</span></div>
             </label>
             <label class="payment-option" data-method="usdc_sol">
               <input type="radio" name="payment_method" value="usdc_sol">
               <div class="pm-icon" style="background:linear-gradient(135deg,#9945FF,#14F195)">S</div>
-              <div class="pm-info">
-                <span class="pm-name">USDC</span>
-                <span class="pm-chain">Solana</span>
-              </div>
+              <div class="pm-info"><span class="pm-name">USDC</span><span class="pm-chain">Solana</span></div>
             </label>
             <label class="payment-option" data-method="bnb">
               <input type="radio" name="payment_method" value="bnb">
               <div class="pm-icon" style="background:linear-gradient(135deg,#F3BA2F,#d4a017)">B</div>
-              <div class="pm-info">
-                <span class="pm-name">BNB</span>
-                <span class="pm-chain">BSC</span>
-              </div>
+              <div class="pm-info"><span class="pm-name">BNB</span><span class="pm-chain">BSC</span></div>
             </label>
             <label class="payment-option" data-method="btc_bridge">
               <input type="radio" name="payment_method" value="btc_bridge">
               <div class="pm-icon" style="background:linear-gradient(135deg,#F7931A,#c77514)">&#8383;</div>
-              <div class="pm-info">
-                <span class="pm-name">BTC</span>
-                <span class="pm-chain">SHA-256 Bridge</span>
-              </div>
+              <div class="pm-info"><span class="pm-name">BTC</span><span class="pm-chain">SHA-256 Bridge</span></div>
             </label>
           </div>
-          <!-- USDT chain selector (shown when USDT selected) -->
           <div class="usdt-chain-select" id="usdtChainSelect" style="display:none; margin-top:10px;">
             <label style="font-size:12px; color:var(--text-secondary); margin-bottom:6px; display:block;">USDT Network</label>
             <div class="payment-methods" style="grid-template-columns: repeat(3, 1fr);">
@@ -301,10 +310,13 @@
         </div>
         <div class="cost-preview">
           <span class="cost-label">Estimated Cost</span>
-          <span class="cost-value" id="costPreview">10 THR</span>
+          <span class="cost-value" id="costPreview">Loading...</span>
+        </div>
+        <div id="floorNotice" style="display:none; font-size:12px; color:#f59e0b; margin-top:4px; padding:6px 10px; background:rgba(245,158,11,0.08); border-radius:6px; border-left:3px solid #f59e0b;">
+          Minimum network price applied.
         </div>
         <div class="fee-info" id="feeInfo" style="display:none">
-          <span class="fee-note">Cross-chain fee: 50% treasury, 25% burn, 25% LP pools</span>
+          <span class="fee-note" id="feeNote">Cross-chain fee split: 50% treasury, 25% burn, 25% LP pools.</span>
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-secondary" onclick="closeNewBuild()">Cancel</button>
@@ -314,46 +326,33 @@
     </div>
   </div>
 
-  <!-- ─── Wallet Connect Modal ──────────────────────────────────────── -->
+  <!-- Wallet Connect Modal -->
   <div class="modal-overlay" id="walletModal">
     <div class="modal" style="max-width:440px">
       <h2>Connect Wallet</h2>
-      <p style="color:var(--text-secondary); font-size:14px; margin-bottom:20px;">
-        Choose your wallet to connect and pay for builds.
-      </p>
+      <p style="color:var(--text-secondary); font-size:14px; margin-bottom:20px;">Choose your wallet to connect and pay for builds.</p>
       <div class="wallet-options">
         <button class="wallet-option" onclick="connectThronosWallet()">
           <div class="wo-icon" style="background:linear-gradient(135deg,var(--accent),#a78bfa)">T</div>
-          <div class="wo-info">
-            <span class="wo-name">Thronos Wallet</span>
-            <span class="wo-desc">Native THR &mdash; lowest fees</span>
-          </div>
+          <div class="wo-info"><span class="wo-name">Thronos Wallet</span><span class="wo-desc">Native THR &mdash; lowest fees</span></div>
           <span class="wo-arrow">&rarr;</span>
         </button>
         <button class="wallet-option" onclick="connectMetaMask()">
           <div class="wo-icon" style="background:linear-gradient(135deg,#E2761B,#CD6116)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M22.5 2L13.4 8.9l1.7-4L22.5 2zM1.5 2l9 7-1.6-4.1L1.5 2zm18 15.5l-2.4 3.7 5.2 1.4 1.5-5.1h-4.3zM1.2 17l1.5 5.1 5.2-1.4-2.4-3.7H1.2z"/></svg>
           </div>
-          <div class="wo-info">
-            <span class="wo-name">MetaMask</span>
-            <span class="wo-desc">ETH, ARB, BNB, Base &mdash; cross-chain bridge</span>
-          </div>
+          <div class="wo-info"><span class="wo-name">MetaMask</span><span class="wo-desc">ETH, ARB, BNB, Base &mdash; cross-chain bridge</span></div>
           <span class="wo-arrow">&rarr;</span>
         </button>
         <button class="wallet-option" onclick="connectPhantom()">
           <div class="wo-icon" style="background:linear-gradient(135deg,#9945FF,#14F195)">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg>
           </div>
-          <div class="wo-info">
-            <span class="wo-name">Phantom (Solana)</span>
-            <span class="wo-desc">USDC payment &mdash; auto-creates THR on Solana</span>
-          </div>
+          <div class="wo-info"><span class="wo-name">Phantom (Solana)</span><span class="wo-desc">USDC payment &mdash; auto-creates THR on Solana</span></div>
           <span class="wo-arrow">&rarr;</span>
         </button>
       </div>
-      <div class="wallet-option-divider">
-        <span>or enter manually</span>
-      </div>
+      <div class="wallet-option-divider"><span>or enter manually</span></div>
       <div class="form-group" style="margin-bottom:0">
         <input type="text" id="manualWalletInput" placeholder="THR... / 0x... / Solana address">
       </div>
@@ -364,9 +363,7 @@
     </div>
   </div>
 
-  <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
-
   <script src="/js/app.js"></script>
 </body>
 </html>
