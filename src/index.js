@@ -19,6 +19,8 @@ const { sequelize } = require('./models');
 const buildRoutes = require('./routes/builds');
 const statusRoutes = require('./routes/status');
 const { cleanupOldArtifacts } = require('./services/storage');
+const uploadsRoutes = require('./routes/uploads');
+const { cleanupOldUploads } = require('./services/uploadStorage');
 
 const app = express();
 const server = createServer(app);
@@ -69,6 +71,7 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/v1/builds', buildRoutes);
 app.use('/api/v1/status', statusRoutes);
+app.use('/api/v1/uploads', uploadsRoutes);
 
 // Static frontend
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -87,6 +90,8 @@ app.get('/api/v1/public/config', (req, res) => {
   res.json({
     status: 'ok',
     internal_free_builds_enabled: process.env.BUILDER_ALLOW_INTERNAL_FREE_BUILDS === 'true',
+    app_url: process.env.APP_URL || null,
+    public_fallback_url: process.env.PUBLIC_FALLBACK_URL || null,
     pricing_public: true,
     build_submit_public: true
   });
@@ -110,9 +115,13 @@ async function startServer() {
     console.log('✅ Database models synchronized');
 
     await cleanupOldArtifacts();
+    await cleanupOldUploads();
     setInterval(() => {
       cleanupOldArtifacts().catch((error) => {
         console.warn('Scheduled artifact cleanup failed:', error.message);
+      });
+      cleanupOldUploads().catch((error) => {
+        console.warn('Scheduled upload cleanup failed:', error.message);
       });
     }, 6 * 60 * 60 * 1000);
 

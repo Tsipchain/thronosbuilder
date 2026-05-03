@@ -7,8 +7,20 @@ on:
         description: 'Build job ID'
         required: true
       source_url:
-        description: 'Git repository URL to build'
+        description: 'Source URL (repo or protected zip url)'
         required: true
+      source_type:
+        description: 'github or zip'
+        required: false
+        default: 'github'
+      upload_id:
+        description: 'Optional upload id'
+        required: false
+        default: ''
+      project_type:
+        description: 'auto|capacitor|flutter|react-native|expo|gradle|unity'
+        required: false
+        default: 'auto'
       branch:
         description: 'Branch to build'
         required: true
@@ -38,8 +50,22 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Clone source repository
+      - name: Fetch source
         run: |
+          SOURCE_TYPE="${{ github.event.inputs.source_type }}"
+          if [ "$SOURCE_TYPE" = "zip" ]; then
+            curl -fL "${{ github.event.inputs.source_url }}" -o source.zip
+            unzip -q source.zip -d source_unzipped
+            rm -rf source
+            mkdir -p source
+            if [ -n "${{ github.event.inputs.project_path }}" ] && [ -d "source_unzipped/${{ github.event.inputs.project_path }}" ]; then
+              cp -R "source_unzipped/${{ github.event.inputs.project_path }}/." source/
+            else
+              if [ -d source_unzipped/source ]; then cp -R source_unzipped/source/. source/; else cp -R source_unzipped/. source/; fi
+            fi
+            exit 0
+          fi
+
           SOURCE_URL="${{ github.event.inputs.source_url }}"
           CLONE_BRANCH="${{ github.event.inputs.branch }}"
 
@@ -135,7 +161,13 @@ jobs:
             fi
           fi
 
-          # --- 4. Check for standalone Gradle ---
+          # --- 4. Check for Unity ---
+          if [ "$PROJECT_TYPE" = "unknown" ] && [ "${{ github.event.inputs.project_type }}" = "unity" -o -f "source/ProjectSettings/ProjectVersion.txt" ] && [ -d "source/Assets" ] && [ -f "source/Packages/manifest.json" ]; then
+            PROJECT_TYPE="unity"
+            echo "Detected Unity project"
+          fi
+
+          # --- 5. Check for standalone Gradle ---
           if [ "$PROJECT_TYPE" = "unknown" ] && [ -f "source/gradlew" ]; then
             PROJECT_TYPE="gradle"
             echo "Detected native Android (Gradle) project"
@@ -310,6 +342,16 @@ jobs:
           ./gradlew bundleRelease
 
       # ────────── Native Gradle ──────────
+
+      - name: Build Unity Android
+        if: steps.detect.outputs.type == "unity"
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          targetPlatform: Android
 
       - name: Build Gradle APK
         if: steps.detect.outputs.type == 'gradle' && github.event.inputs.build_type == 'apk'

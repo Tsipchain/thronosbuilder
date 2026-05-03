@@ -27,6 +27,18 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: false
     },
+    upload_id: {
+      type: DataTypes.STRING(64),
+      allowNull: true
+    },
+    upload_token: {
+      type: DataTypes.STRING(128),
+      allowNull: true
+    },
+    project_type: {
+      type: DataTypes.ENUM('auto', 'capacitor', 'flutter', 'react-native', 'expo', 'gradle', 'unity'),
+      defaultValue: 'auto'
+    },
     branch: {
       type: DataTypes.STRING(100),
       defaultValue: 'main'

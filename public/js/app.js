@@ -12,6 +12,7 @@ let wallet = {
 };
 
 let pricingData = null;
+let publicConfig = null;
 let currentWs = null;
 const FALLBACK_PRICING = {
   android: { apk: 10, aab: 10 },
@@ -114,6 +115,16 @@ function showPage(page) {
 document.querySelectorAll('.page').forEach(p => {
   if (!p.classList.contains('active')) p.style.display = 'none';
 });
+
+async function loadPublicConfig() {
+  try {
+    const res = await fetch(`${API}/public/config`);
+    if (!res.ok) return;
+    publicConfig = await res.json();
+  } catch (_) {}
+}
+
+loadPublicConfig();
 
 // ─── Wallet Connect Modal ──────────────────────────────────────────────
 document.getElementById('connectWallet').addEventListener('click', () => {
@@ -1300,7 +1311,23 @@ async function retryBuild(jobId) {
 }
 
 function downloadArtifact(jobId, platform) {
-  window.open(`${API}/builds/${jobId}/download/${platform}`, '_blank');
+  const appUrl = publicConfig?.app_url;
+  const fallbackUrl = publicConfig?.public_fallback_url;
+  let useFallback = false;
+
+  if (appUrl && fallbackUrl) {
+    try {
+      const appHost = new URL(appUrl).hostname;
+      const currentHost = window.location.hostname;
+      // If user is browsing via fallback domain while primary domain DNS is pending, prefer fallback.
+      if (currentHost !== appHost) {
+        useFallback = true;
+      }
+    } catch (_) {}
+  }
+
+  const fallbackParam = useFallback ? '?fallback=1' : '';
+  window.open(`${API}/builds/${jobId}/download/${platform}${fallbackParam}`, '_blank');
 }
 
 // ─── Pricing Page ──────────────────────────────────────────────────────

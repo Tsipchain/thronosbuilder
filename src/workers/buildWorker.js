@@ -5,6 +5,7 @@ const { buildAndroid } = require('../services/androidBuilder');
 const { buildIOS } = require('../services/iosBuilder');
 const { broadcastToJob } = require('../utils/websocket');
 const { addLog } = require('../utils/logger');
+const { deleteUploadById } = require('../services/uploadStorage');
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const CONCURRENCY = parseInt(process.env.WORKER_CONCURRENCY, 10) || 2;
@@ -22,7 +23,9 @@ buildQueue.process(CONCURRENCY, async (job) => {
     sourceType,
     branch,
     buildType,
-    signingConfig
+    signingConfig,
+    uploadId,
+    projectType
   } = job.data;
 
   console.log(`Processing build job ${jobId} for platform: ${platform}`);
@@ -70,6 +73,8 @@ buildQueue.process(CONCURRENCY, async (job) => {
         sourceUrl,
         sourceType,
         branch,
+        uploadId,
+        projectType,
         buildType: buildType === 'both' ? 'apk' : buildType,
         signingConfig: signingConfig || {},
         onProgress,
@@ -128,6 +133,8 @@ buildQueue.process(CONCURRENCY, async (job) => {
       }
     });
 
+    await deleteUploadById(uploadId);
+
     return result;
 
   } catch (error) {
@@ -137,6 +144,7 @@ buildQueue.process(CONCURRENCY, async (job) => {
       { status: 'failed', completed_at: new Date() },
       { where: { id: jobId } }
     );
+    await deleteUploadById(uploadId);
 
     broadcastToJob(jobId, {
       event: 'error',

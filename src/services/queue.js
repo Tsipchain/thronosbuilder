@@ -3,6 +3,7 @@ const { BuildJob } = require('../models');
 const { broadcastToJob } = require('../utils/websocket');
 const { buildAndroid } = require('./androidBuilder');
 const { buildIOS } = require('./iosBuilder');
+const { deleteUploadById } = require('./uploadStorage');
 
 // Track Redis connectivity
 let redisConnected = false;
@@ -10,7 +11,7 @@ let redisError = null;
 let buildQueue = null;
 
 // ─── Build processor logic (shared by queue and inline) ─────────────
-async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, projectPath, buildType, signingConfig }) {
+async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, projectPath, buildType, signingConfig, uploadId, projectType }) {
   try {
     console.log(`🚀 Processing build job ${jobId} for platform: ${platform}`);
 
@@ -34,6 +35,8 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, pr
         sourceType,
         branch,
         projectPath,
+        uploadId,
+        projectType,
         buildType: buildType === 'both' ? 'apk' : buildType,
         signingConfig,
         onProgress: (progress, message) => {
@@ -104,6 +107,8 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, pr
         }
       });
 
+      await deleteUploadById(uploadId);
+
       return result;
     } else {
       throw new Error(result.error || 'Build failed');
@@ -116,6 +121,7 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, pr
       { status: 'failed', completed_at: new Date() },
       { where: { id: jobId } }
     ).catch(() => {});
+    await deleteUploadById(uploadId);
 
     broadcastToJob(jobId, {
       event: 'error',

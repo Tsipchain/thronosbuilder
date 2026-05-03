@@ -34,8 +34,8 @@ async function uploadToStorage(filePath, key) {
       const destDir = path.dirname(destPath);
       await fs.promises.mkdir(destDir, { recursive: true });
       await fs.promises.copyFile(filePath, destPath);
-      const appUrl = process.env.APP_URL || 'http://localhost:' + (process.env.PORT || '3000');
-      const url = `${appUrl}/api/v1/builds/artifacts/${key}`;
+      const { artifactUrl } = getArtifactPublicUrls(key);
+      const url = artifactUrl;
       console.log(`💾 Saved to local disk: ${destPath}`);
       return url;
     } catch (localError) {
@@ -82,6 +82,21 @@ async function uploadToStorage(filePath, key) {
   }
 
   throw new Error('No artifact storage backend is enabled or available');
+}
+
+function getArtifactPublicUrls(key) {
+  const appUrl = process.env.APP_URL || `http://localhost:${process.env.PORT || '3000'}`;
+  const fallbackBase = process.env.PUBLIC_FALLBACK_URL;
+  return {
+    artifactUrl: `${appUrl}/api/v1/builds/artifacts/${key}`,
+    fallbackArtifactUrl: fallbackBase ? `${fallbackBase}/api/v1/builds/artifacts/${key}` : null
+  };
+}
+
+function deriveFallbackArtifactUrl(artifactUrl) {
+  if (!artifactUrl || !process.env.PUBLIC_FALLBACK_URL || !process.env.APP_URL) return null;
+  if (!artifactUrl.startsWith(process.env.APP_URL)) return null;
+  return artifactUrl.replace(process.env.APP_URL, process.env.PUBLIC_FALLBACK_URL);
 }
 
 function getContentType(key) {
@@ -131,4 +146,4 @@ async function cleanupOldArtifacts() {
   }
 }
 
-module.exports = { uploadToStorage, cleanupOldArtifacts };
+module.exports = { uploadToStorage, cleanupOldArtifacts, getArtifactPublicUrls, deriveFallbackArtifactUrl };

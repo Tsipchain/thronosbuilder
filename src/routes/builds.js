@@ -17,6 +17,7 @@ const {
   TREASURY_ADDRESS,
 } = require('../services/blockchain');
 const { requireApiKey } = require('../middleware/auth');
+const { deriveFallbackArtifactUrl } = require('../services/storage');
 
 function normalizeWalletAddress(walletAddress) {
   return String(walletAddress || '').trim().toLowerCase();
@@ -77,7 +78,9 @@ router.get('/', async (req, res) => {
         created_at: j.created_at,
         completed_at: j.completed_at,
         android_artifact_url: j.android_artifact_url,
-        ios_artifact_url: j.ios_artifact_url
+        ios_artifact_url: j.ios_artifact_url,
+        android_fallback_artifact_url: deriveFallbackArtifactUrl(j.android_artifact_url),
+        ios_fallback_artifact_url: deriveFallbackArtifactUrl(j.ios_artifact_url)
       }))
     });
   } catch (error) {
@@ -137,6 +140,9 @@ router.post('/', async (req, res) => {
       source_url,
       source_type = 'github',
       branch = 'main',
+      upload_id = null,
+      upload_token = null,
+      project_type = 'auto',
       project_path = null,
       platform,
       build_type,
@@ -150,11 +156,19 @@ router.post('/', async (req, res) => {
     } = req.body;
 
     // Validation
-    if (!wallet_address || !source_url || !platform || !build_type || !project_name) {
+    if (!wallet_address || !platform || !build_type || !project_name) {
       return res.status(400).json({
         error: 'Missing required fields',
         required: ['wallet_address', 'source_url', 'platform', 'build_type', 'project_name']
       });
+    }
+
+    if (source_type !== 'zip' && !source_url) {
+      return res.status(400).json({ error: 'source_url required for non-zip sources' });
+    }
+
+    if (source_type === 'zip' && (!upload_id || !upload_token || !source_url)) {
+      return res.status(400).json({ error: 'upload_id, upload_token and source_url are required for zip builds' });
     }
 
     // iOS build guard — iOS is not yet available
@@ -261,6 +275,9 @@ router.post('/', async (req, res) => {
       project_name,
       source_type,
       source_url,
+      upload_id,
+      upload_token,
+      project_type,
       branch,
       project_path,
       build_type,
@@ -280,6 +297,9 @@ router.post('/', async (req, res) => {
       jobId: job.id,
       sourceUrl: source_url,
       sourceType: source_type,
+      uploadId: upload_id,
+      uploadToken: upload_token,
+      projectType: project_type,
       branch,
       projectPath: project_path,
       platform: effectivePlatform,
@@ -342,6 +362,8 @@ router.get('/:jobId', async (req, res) => {
       completed_at: job.completed_at,
       android_artifact_url: job.android_artifact_url,
       ios_artifact_url: job.ios_artifact_url,
+      android_fallback_artifact_url: deriveFallbackArtifactUrl(job.android_artifact_url),
+      ios_fallback_artifact_url: deriveFallbackArtifactUrl(job.ios_artifact_url),
       cost_thron: job.cost_thron,
       payment_status: job.payment_status
     });
@@ -533,8 +555,9 @@ router.get('/:jobId/download/:platform', async (req, res) => {
       return res.status(404).json({ error: 'Artifact not found' });
     }
 
-    // Redirect to artifact URL (IPFS or S3)
-    res.redirect(artifactUrl);
+    const fallbackArtifactUrl = deriveFallbackArtifactUrl(artifactUrl);
+    const useFallback = req.query.fallback === '1' || req.query.fallback === 'true';
+    res.redirect(useFallback && fallbackArtifactUrl ? fallbackArtifactUrl : artifactUrl);
 
   } catch (error) {
     console.error('Download error:', error);
