@@ -56,6 +56,16 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Public config flags for frontend/service checks
+app.get('/api/v1/public/config', (req, res) => {
+  res.json({
+    status: 'ok',
+    internal_free_builds_enabled: process.env.BUILDER_ALLOW_INTERNAL_FREE_BUILDS === 'true',
+    pricing_public: true,
+    build_submit_public: true
+  });
+});
+
 // WebSocket setup
 const wss = new WebSocketServer({ server });
 setupWebSocket(wss);
