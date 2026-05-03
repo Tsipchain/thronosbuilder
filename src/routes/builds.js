@@ -15,12 +15,9 @@ const {
   refundPayment,
   TREASURY_ADDRESS,
 } = require('../services/blockchain');
-
-// SECURITY: Phase 0 — require API key on all build routes
 const { requireApiKey } = require('../middleware/auth');
-router.use(requireApiKey);
 
-// List builds for a wallet
+// Public: List builds for a wallet
 router.get('/', async (req, res) => {
   try {
     const { wallet_address } = req.query;
@@ -63,7 +60,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Check wallet balance and validate before payment
+// Public: Check wallet balance and validate before payment
 router.post('/preflight', async (req, res) => {
   try {
     const { wallet_address, platform, build_type } = req.body;
@@ -106,7 +103,7 @@ router.post('/preflight', async (req, res) => {
   }
 });
 
-// Submit new build job
+// Public: Submit new build job
 router.post('/', async (req, res) => {
   try {
     const {
@@ -272,7 +269,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Get build status
+// Public: Get build status
 router.get('/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -310,7 +307,7 @@ router.get('/:jobId', async (req, res) => {
   }
 });
 
-// Get build logs
+// Public: Get build logs
 router.get('/:jobId/logs', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -339,8 +336,8 @@ router.get('/:jobId/logs', async (req, res) => {
   }
 });
 
-// Cancel build job
-router.post('/:jobId/cancel', async (req, res) => {
+// Protected: Cancel build job
+router.post('/:jobId/cancel', requireApiKey, async (req, res) => {
   try {
     const { jobId } = req.params;
 
@@ -367,8 +364,8 @@ router.post('/:jobId/cancel', async (req, res) => {
   }
 });
 
-// Retry a stuck/failed build
-router.post('/:jobId/retry', async (req, res) => {
+// Protected: Retry a stuck/failed build
+router.post('/:jobId/retry', requireApiKey, async (req, res) => {
   try {
     const { jobId } = req.params;
     const result = await retryBuild(jobId);
@@ -383,8 +380,8 @@ router.post('/:jobId/retry', async (req, res) => {
   }
 });
 
-// Queue/Redis status (debug)
-router.get('/system/status', async (req, res) => {
+// Protected: Queue/Redis status (debug)
+router.get('/system/status', requireApiKey, async (req, res) => {
   const redis = getRedisStatus();
   res.json({ redis, queue_mode: redis.connected ? 'redis' : 'inline' });
 });

@@ -1,33 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const { BuildJob } = require('../models');
-
-// SECURITY: Phase 0 — require API key on all status routes
 const { requireApiKey } = require('../middleware/auth');
-router.use(requireApiKey);
 
-// Get pricing
+// Public: Get pricing
 router.get('/pricing', (req, res) => {
   const { getPricing } = require('../utils/pricing');
   res.json(getPricing());
 });
 
-// Get queue status
-router.get('/queue', async (req, res) => {
-  try {
-    const { getQueueStatus } = require('../services/queue');
-    const status = await getQueueStatus();
-
-    res.json({
-      queue_status: status,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get queue status' });
-  }
-});
-
-// Get system stats
+// Public: Get system stats
 router.get('/stats', async (req, res) => {
   try {
     const stats = await BuildJob.findAll({
@@ -55,6 +37,20 @@ router.get('/stats', async (req, res) => {
   } catch (error) {
     console.error('Stats error:', error);
     res.status(500).json({ error: 'Failed to get stats' });
+  }
+});
+
+// Protected admin route: Get queue status
+router.get('/queue', requireApiKey, async (req, res) => {
+  try {
+    const { getQueueStatus } = require('../services/queue');
+    const status = await getQueueStatus();
+    res.json({
+      queue_status: status,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get queue status' });
   }
 });
 

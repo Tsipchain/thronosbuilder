@@ -13,6 +13,36 @@ let wallet = {
 
 let pricingData = null;
 let currentWs = null;
+const FALLBACK_PRICING = {
+  android: { apk: 10, aab: 10 },
+  ios: { ipa: 50 },
+  bundle_discount: 5,
+};
+
+function normalizeBuildType(rawBuildType) {
+  const value = String(rawBuildType || '').trim().toLowerCase();
+  if (!value) return 'apk';
+  if (value.includes('aab')) return 'aab';
+  return 'apk';
+}
+
+function getSafePricing(rawPricing) {
+  const pricing = rawPricing && typeof rawPricing === 'object' ? rawPricing : {};
+  const android = pricing.android && typeof pricing.android === 'object' ? pricing.android : {};
+  const ios = pricing.ios && typeof pricing.ios === 'object' ? pricing.ios : {};
+  return {
+    android: {
+      apk: Number.isFinite(Number(android.apk)) ? Number(android.apk) : FALLBACK_PRICING.android.apk,
+      aab: Number.isFinite(Number(android.aab)) ? Number(android.aab) : FALLBACK_PRICING.android.aab,
+    },
+    ios: {
+      ipa: Number.isFinite(Number(ios.ipa)) ? Number(ios.ipa) : FALLBACK_PRICING.ios.ipa,
+    },
+    bundle_discount: Number.isFinite(Number(pricing.bundle_discount))
+      ? Number(pricing.bundle_discount)
+      : FALLBACK_PRICING.bundle_discount,
+  };
+}
 
 // Chain configs
 const CHAINS = {
@@ -650,61 +680,66 @@ document.getElementById('newBuildModal').addEventListener('click', e => {
 });
 
 async function updateCost() {
-  if (!pricingData) {
-    try {
+  try {
+    if (!pricingData) {
       const res = await fetch(`${API}/status/pricing`);
-      pricingData = await res.json();
-    } catch (e) {
-      pricingData = { android: { apk: 10, aab: 10 }, ios: { ipa: 50 }, bundle_discount: 5 };
+      if (!res.ok) {
+        console.warn('Pricing endpoint unavailable, using fallback pricing.', res.status);
+        toast('Live pricing unavailable. Using fallback pricing.', 'error');
+        pricingData = FALLBACK_PRICING;
+      } else {
+        pricingData = await res.json();
+      }
     }
-  }
 
-  const form = document.getElementById('buildForm');
-  const platform = form.platform.value;
-  const buildType = form.build_type.value;
-  const paymentMethod = form.payment_method?.value || 'thr';
+    const safePricing = getSafePricing(pricingData);
+    const form = document.getElementById('buildForm');
+    const platform = form.platform.value;
+    const buildType = normalizeBuildType(form.build_type.value);
+    const paymentMethod = form.payment_method?.value || 'thr';
 
-  let costThr = 0;
-  if (platform === 'android' || platform === 'both') {
-    costThr += buildType === 'aab' ? pricingData.android.aab : pricingData.android.apk;
-  }
-  if (platform === 'ios' || platform === 'both') {
-    costThr += pricingData.ios.ipa;
-  }
-  if (platform === 'both') {
-    costThr = Math.max(costThr - pricingData.bundle_discount, 0);
-  }
+    let costThr = 0;
+    if (platform === 'android' || platform === 'both') {
+      costThr += buildType === 'aab' ? safePricing.android.aab : safePricing.android.apk;
+    }
+    if (platform === 'ios' || platform === 'both') {
+      costThr += safePricing.ios.ipa;
+    }
+    if (platform === 'both') {
+      costThr = Math.max(costThr - safePricing.bundle_discount, 0);
+    }
 
-  // Show cost in the selected payment currency
-  const costEl = document.getElementById('costPreview');
-  const feeInfo = document.getElementById('feeInfo');
+    const costEl = document.getElementById('costPreview');
+    const feeInfo = document.getElementById('feeInfo');
 
-  if (paymentMethod === 'thr') {
-    costEl.textContent = `${costThr} THR`;
-    feeInfo.style.display = 'none';
-  } else if (paymentMethod === 'usdt_evm') {
-    // USDT is pegged 1:1 to USD, convert THR → USD
-    const usdtCost = (costThr * 0.05).toFixed(2); // 1 THR = $0.05
-    const usdtChain = form.usdt_chain?.value || 'ethereum';
-    const chainNames = { ethereum: 'ERC-20', arbitrum: 'Arbitrum', bsc: 'BEP-20' };
-    costEl.textContent = `~${usdtCost} USDT (${chainNames[usdtChain] || usdtChain})`;
-    feeInfo.style.display = 'block';
-  } else if (paymentMethod === 'usdc_sol') {
-    const usdcCost = (costThr * 0.05).toFixed(2); // 1 THR = $0.05
-    costEl.textContent = `~${usdcCost} USDC`;
-    feeInfo.style.display = 'block';
-  } else if (paymentMethod === 'eth') {
-    const ethCost = (costThr * 0.000015).toFixed(6);
-    costEl.textContent = `~${ethCost} ETH`;
-    feeInfo.style.display = 'block';
-  } else if (paymentMethod === 'bnb') {
-    const bnbCost = (costThr * 0.00008).toFixed(6);
-    costEl.textContent = `~${bnbCost} BNB`;
-    feeInfo.style.display = 'block';
-  } else if (paymentMethod === 'btc_bridge') {
-    const btcCost = (costThr * 0.0000008).toFixed(8); // 1 THR ≈ 0.0000008 BTC
-    costEl.textContent = `~${btcCost} BTC (via SHA-256 Bridge)`;
-    feeInfo.style.display = 'block';
+    if (paymentMethod === 'thr') {
+      costEl.textContent = `${costThr} THR`;
+      feeInfo.style.display = 'none';
+    } else if (paymentMethod === 'usdt_evm') {
+      const usdtCost = (costThr * 0.05).toFixed(2);
+      const usdtChain = form.usdt_chain?.value || 'ethereum';
+      const chainNames = { ethereum: 'ERC-20', arbitrum: 'Arbitrum', bsc: 'BEP-20' };
+      costEl.textContent = `~${usdtCost} USDT (${chainNames[usdtChain] || usdtChain})`;
+      feeInfo.style.display = 'block';
+    } else if (paymentMethod === 'usdc_sol') {
+      const usdcCost = (costThr * 0.05).toFixed(2);
+      costEl.textContent = `~${usdcCost} USDC`;
+      feeInfo.style.display = 'block';
+    } else if (paymentMethod === 'eth') {
+      const ethCost = (costThr * 0.000015).toFixed(6);
+      costEl.textContent = `~${ethCost} ETH`;
+      feeInfo.style.display = 'block';
+    } else if (paymentMethod === 'bnb') {
+      const bnbCost = (costThr * 0.00008).toFixed(6);
+      costEl.textContent = `~${bnbCost} BNB`;
+      feeInfo.style.display = 'block';
+    } else if (paymentMethod === 'btc_bridge') {
+      const btcCost = (costThr * 0.0000008).toFixed(8);
+      costEl.textContent = `~${btcCost} BTC (via SHA-256 Bridge)`;
+      feeInfo.style.display = 'block';
+    }
+  } catch (e) {
+    console.warn('Failed to update cost preview:', e);
   }
 }
 
@@ -714,9 +749,20 @@ async function preflightCheck(walletAddress, platform, buildType) {
     const res = await fetch(`${API}/builds/preflight`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet_address: walletAddress, platform, build_type: buildType }),
+      body: JSON.stringify({
+        wallet_address: walletAddress,
+        platform,
+        build_type: normalizeBuildType(buildType),
+      }),
     });
-    return await res.json();
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        return { error: 'Builder API authorization failed' };
+      }
+      return data?.error ? data : { error: 'Preflight check failed' };
+    }
+    return data;
   } catch (err) {
     return { error: err.message };
   }
@@ -738,7 +784,7 @@ async function submitBuild(e) {
     if (paymentMethod === 'thr' || wallet.type === 'thronos') {
       btn.textContent = 'Checking wallet...';
       const preflight = await preflightCheck(
-        wallet.address, form.platform.value, form.build_type.value
+        wallet.address, form.platform.value, normalizeBuildType(form.build_type.value)
       );
 
       if (preflight.error) {
@@ -783,7 +829,7 @@ async function submitBuild(e) {
       source_url: form.source_url.value,
       branch: form.branch.value || 'main',
       platform: form.platform.value,
-      build_type: form.build_type.value,
+      build_type: normalizeBuildType(form.build_type.value),
       payment_method: paymentMethod,
       payment_chain: wallet.chain,
       payment_proof: paymentProof,
