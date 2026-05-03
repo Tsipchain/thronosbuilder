@@ -281,10 +281,15 @@ jobs:
         if: steps.detect.outputs.type == 'capacitor'
         working-directory: ${{ steps.detect.outputs.project_dir }}
         run: |
-          if [ ! -d "android" ]; then
+          if [ ! -d "android" ] || [ ! -f "android/gradlew" ] || [ ! -f "android/settings.gradle" ] || [ ! -f "android/app/build.gradle" ]; then
+            echo "::warning::Capacitor android project missing or incomplete. Regenerating android/"
+            rm -rf android
             npx cap add android
           fi
+
           npx cap sync android
+          ls -la android
+          ls -la android/app || true
 
       - name: Build Capacitor APK
         if: steps.detect.outputs.type == 'capacitor' && github.event.inputs.build_type == 'apk'
