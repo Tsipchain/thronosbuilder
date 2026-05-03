@@ -90,6 +90,8 @@ app.get('/api/v1/public/config', (req, res) => {
   res.json({
     status: 'ok',
     internal_free_builds_enabled: process.env.BUILDER_ALLOW_INTERNAL_FREE_BUILDS === 'true',
+    app_url: process.env.APP_URL || null,
+    public_fallback_url: process.env.PUBLIC_FALLBACK_URL || null,
     pricing_public: true,
     build_submit_public: true
   });
