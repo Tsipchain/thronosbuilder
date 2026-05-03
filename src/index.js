@@ -22,21 +22,46 @@ const statusRoutes = require('./routes/status');
 const app = express();
 const server = createServer(app);
 
-// SECURITY: Phase 0 — restrict CORS to known domains
+// SECURITY: CORS allowlist (production defaults + optional env extension)
+const DEFAULT_CORS_ORIGINS = [
+  'https://builder.thronoschain.org',
+  'https://thronosbuilder-production.up.railway.app',
+  'https://thronoschain.org',
+  'https://api.thronoschain.org',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:8080',
+];
+
+const envCorsOrigins = String(process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+const corsAllowlist = Array.from(new Set([...DEFAULT_CORS_ORIGINS, ...envCorsOrigins]));
+const corsAllowlistSet = new Set(corsAllowlist);
+
 const corsOptions = {
-    origin: [
-        'https://thronoschain.org',
-        'https://builder.thronoschain.org',
-        'https://api.thronoschain.org',
-        'https://commerce.thronoschain.org',
-    ],
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
+  origin(origin, callback) {
+    // Allow non-browser requests (no Origin header)
+    if (!origin) {
+      return callback(null, true);
+    }
+    if (corsAllowlistSet.has(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS origin not allowed: ${origin}`));
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  credentials: false,
+  optionsSuccessStatus: 204,
 };
 
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -75,6 +100,8 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
   try {
+    console.log(`🌐 Allowed CORS origins: ${corsAllowlist.join(', ')}`);
+
     await sequelize.authenticate();
     console.log('✅ Database connected successfully');
 
