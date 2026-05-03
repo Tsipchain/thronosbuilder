@@ -17,6 +17,30 @@ const {
 } = require('../services/blockchain');
 const { requireApiKey } = require('../middleware/auth');
 
+function normalizeWalletAddress(walletAddress) {
+  return String(walletAddress || '').trim().toLowerCase();
+}
+
+function shortWallet(walletAddress) {
+  const value = String(walletAddress || '').trim();
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function isInternalFreeBuildWallet(walletAddress) {
+  if (process.env.BUILDER_ALLOW_INTERNAL_FREE_BUILDS !== 'true') {
+    return false;
+  }
+
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const allowlist = String(process.env.BUILDER_INTERNAL_FREE_WALLETS || '')
+    .split(',')
+    .map(w => normalizeWalletAddress(w))
+    .filter(Boolean);
+
+  return allowlist.includes(normalizedWallet);
+}
+
 // Public: List builds for a wallet
 router.get('/', async (req, res) => {
   try {
@@ -147,67 +171,77 @@ router.post('/', async (req, res) => {
 
     // Calculate cost
     const cost_thron = calculateCost(effectivePlatform, build_type);
+    const isInternalWaived = isInternalFreeBuildWallet(wallet_address);
 
     // ─── Payment Verification ───
 
     let paymentResult;
+    let paymentStatus = 'paid';
+    let successMessage = 'Build job submitted successfully';
 
-    if (payment_method === 'thronos' || payment_method === 'thr') {
-      // THR native payment: validate address first
-      if (!validateThrAddress(wallet_address)) {
-        return res.status(400).json({
-          error: 'Invalid THR wallet address',
-          hint: 'THR address format: THR + 40 hex characters',
-        });
-      }
-
-      if (tx_id) {
-        // User already sent payment, verify the transaction
-        paymentResult = await verifyPayment(wallet_address, cost_thron, tx_id);
-        if (!paymentResult.success) {
-          return res.status(402).json({
-            error: 'Payment transaction verification failed',
-            detail: paymentResult.error,
-            tx_id,
+    if (isInternalWaived) {
+      console.info(`Internal free build waived for wallet ${shortWallet(wallet_address)}`);
+      paymentResult = { success: true, txId: null, method: 'internal_waived' };
+      paymentStatus = 'internal_waived';
+      successMessage = 'Internal test build submitted successfully';
+    } else {
+      if (payment_method === 'thronos' || payment_method === 'thr') {
+        // THR native payment: validate address first
+        if (!validateThrAddress(wallet_address)) {
+          return res.status(400).json({
+            error: 'Invalid THR wallet address',
+            hint: 'THR address format: THR + 40 hex characters',
           });
         }
-      } else if (auth_secret) {
-        // Server-side payment: send THR from user wallet to treasury
-        paymentResult = await requestBuildPayment(
-          wallet_address, cost_thron, auth_secret, passphrase
-        );
-        if (!paymentResult.success) {
-          return res.status(402).json({
-            error: 'Payment failed',
-            detail: paymentResult.error,
-            required_amount: cost_thron,
-            treasury_address: TREASURY_ADDRESS,
-          });
+
+        if (tx_id) {
+          // User already sent payment, verify the transaction
+          paymentResult = await verifyPayment(wallet_address, cost_thron, tx_id);
+          if (!paymentResult.success) {
+            return res.status(402).json({
+              error: 'Payment transaction verification failed',
+              detail: paymentResult.error,
+              tx_id,
+            });
+          }
+        } else if (auth_secret) {
+          // Server-side payment: send THR from user wallet to treasury
+          paymentResult = await requestBuildPayment(
+            wallet_address, cost_thron, auth_secret, passphrase
+          );
+          if (!paymentResult.success) {
+            return res.status(402).json({
+              error: 'Payment failed',
+              detail: paymentResult.error,
+              required_amount: cost_thron,
+              treasury_address: TREASURY_ADDRESS,
+            });
+          }
+        } else {
+          // No auth_secret and no tx_id: check balance only
+          paymentResult = await verifyPayment(wallet_address, cost_thron);
+          if (!paymentResult.success) {
+            return res.status(402).json({
+              error: 'Insufficient THR balance',
+              detail: paymentResult.error,
+              required_amount: cost_thron,
+              treasury_address: TREASURY_ADDRESS,
+              hint: 'Send THR to treasury address or provide auth_secret for automatic payment',
+            });
+          }
         }
       } else {
-        // No auth_secret and no tx_id: check balance only
-        paymentResult = await verifyPayment(wallet_address, cost_thron);
-        if (!paymentResult.success) {
+        // Cross-chain payment (MetaMask/Phantom): verify tx_id exists
+        if (!tx_id) {
           return res.status(402).json({
-            error: 'Insufficient THR balance',
-            detail: paymentResult.error,
-            required_amount: cost_thron,
-            treasury_address: TREASURY_ADDRESS,
-            hint: 'Send THR to treasury address or provide auth_secret for automatic payment',
+            error: 'Transaction hash required for cross-chain payment',
+            hint: 'Complete the payment transaction and provide tx_id',
           });
         }
+        // Cross-chain tx verification is handled client-side
+        // We trust the tx_id for now; webhook/oracle can verify later
+        paymentResult = { success: true, txId: tx_id, method: 'cross_chain' };
       }
-    } else {
-      // Cross-chain payment (MetaMask/Phantom): verify tx_id exists
-      if (!tx_id) {
-        return res.status(402).json({
-          error: 'Transaction hash required for cross-chain payment',
-          hint: 'Complete the payment transaction and provide tx_id',
-        });
-      }
-      // Cross-chain tx verification is handled client-side
-      // We trust the tx_id for now; webhook/oracle can verify later
-      paymentResult = { success: true, txId: tx_id, method: 'cross_chain' };
     }
 
     // ─── Create Build Job ───
@@ -228,12 +262,14 @@ router.post('/', async (req, res) => {
       build_type,
       platform: effectivePlatform,
       cost_thron,
-      payment_status: 'paid',
+      payment_status: paymentStatus,
       status: 'pending'
     });
 
-    // Record payment on chain
-    await recordBuildPayment(job.id, wallet_address, cost_thron, paymentResult.txId);
+    // Record payment on chain for paid builds
+    if (!isInternalWaived) {
+      await recordBuildPayment(job.id, wallet_address, cost_thron, paymentResult.txId);
+    }
 
     // Add to build queue
     await addBuildJob(job.id, {
@@ -250,10 +286,11 @@ router.post('/', async (req, res) => {
       success: true,
       job_id: job.id,
       status: 'pending',
+      payment_status: paymentStatus,
       platform: effectivePlatform,
       cost_thron,
       payment_tx: paymentResult.txId || null,
-      message: 'Build job submitted successfully',
+      message: successMessage,
       websocket_url: `/ws/builds/${job.id}`
     };
 
