@@ -32,11 +32,11 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Set up Java 17
+      - name: Set up Java 21
         uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Clone source repository
         run: |
@@ -295,14 +295,18 @@ jobs:
         if: steps.detect.outputs.type == 'capacitor' && github.event.inputs.build_type == 'apk'
         working-directory: ${{ steps.detect.outputs.project_dir }}/android
         run: |
+          java -version
           chmod +x gradlew
+          ./gradlew --version
           ./gradlew assembleDebug
 
       - name: Build Capacitor AAB
         if: steps.detect.outputs.type == 'capacitor' && github.event.inputs.build_type == 'aab'
         working-directory: ${{ steps.detect.outputs.project_dir }}/android
         run: |
+          java -version
           chmod +x gradlew
+          ./gradlew --version
           ./gradlew bundleRelease
 
       # ────────── Native Gradle ──────────
