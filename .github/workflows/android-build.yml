@@ -17,6 +17,10 @@ on:
         description: 'Build type (apk or aab)'
         required: true
         default: 'apk'
+      project_path:
+        description: 'Optional project subdirectory path'
+        required: false
+        default: ''
       callback_url:
         description: 'Callback URL to notify on completion'
         required: false
@@ -37,15 +41,19 @@ jobs:
       - name: Clone source repository
         run: |
           SOURCE_URL="${{ github.event.inputs.source_url }}"
+          CLONE_BRANCH="${{ github.event.inputs.branch }}"
 
           # Handle GitHub tree URLs (e.g. github.com/user/repo/tree/branch/subdir)
-          SUBDIR=""
+          SUBDIR="${{ github.event.inputs.project_path }}"
           if [[ "$SOURCE_URL" == *"/tree/"* ]]; then
             REPO_PART=$(echo "$SOURCE_URL" | sed -E 's|(https://github.com/[^/]+/[^/]+)/tree/.*|\1|')
             BRANCH_AND_PATH=$(echo "$SOURCE_URL" | sed -E 's|https://github.com/[^/]+/[^/]+/tree/||')
             BRANCH_NAME=$(echo "$BRANCH_AND_PATH" | cut -d'/' -f1)
             SUBDIR=$(echo "$BRANCH_AND_PATH" | cut -d'/' -f2-)
             SOURCE_URL="$REPO_PART"
+            if [ -n "$BRANCH_NAME" ]; then
+              CLONE_BRANCH="$BRANCH_NAME"
+            fi
             echo "Detected tree URL - repo: $REPO_PART, branch: $BRANCH_NAME, subdir: $SUBDIR"
           fi
 
@@ -54,7 +62,7 @@ jobs:
             SOURCE_URL=$(echo "$SOURCE_URL" | sed "s|https://github.com|https://x-access-token:${{ github.token }}@github.com|")
           fi
 
-          git clone --branch ${{ github.event.inputs.branch }} --depth 1 \
+          git clone --branch "$CLONE_BRANCH" --depth 1 \
             "$SOURCE_URL" source_full
 
           # If subdir was specified, use only that subdirectory
@@ -74,9 +82,21 @@ jobs:
           PROJECT_TYPE="unknown"
           PROJECT_DIR="source"
 
-          # --- 1. Check for Expo / React Native ---
+          # --- 1. Check for Capacitor ---
+          if [ -f "source/capacitor.config.ts" ] || [ -f "source/capacitor.config.json" ]; then
+            PROJECT_TYPE="capacitor"
+            echo "Detected Capacitor project"
+          fi
+          if [ "$PROJECT_TYPE" = "unknown" ] && [ -f "source/package.json" ]; then
+            if grep -q '"@capacitor/core"' source/package.json 2>/dev/null && grep -q '"@capacitor/android"' source/package.json 2>/dev/null; then
+              PROJECT_TYPE="capacitor"
+              echo "Detected Capacitor project"
+            fi
+          fi
+
+          # --- 2. Check for Expo / React Native ---
           if [ -f "source/package.json" ]; then
-            if grep -q '"expo"' source/package.json 2>/dev/null || [ -f "source/app.json" ]; then
+            if [ "$PROJECT_TYPE" = "unknown" ] && (grep -q '"expo"' source/package.json 2>/dev/null || [ -f "source/app.json" ]); then
               if grep -q '"expo"' source/package.json 2>/dev/null; then
                 PROJECT_TYPE="expo"
                 echo "Detected Expo (React Native) project"
@@ -88,7 +108,7 @@ jobs:
             fi
           fi
 
-          # --- 2. Check for Flutter ---
+          # --- 3. Check for Flutter ---
           if [ "$PROJECT_TYPE" = "unknown" ]; then
             FLUTTER_LOCATIONS=(
               "source"
@@ -115,14 +135,14 @@ jobs:
             fi
           fi
 
-          # --- 3. Check for standalone Gradle ---
+          # --- 4. Check for standalone Gradle ---
           if [ "$PROJECT_TYPE" = "unknown" ] && [ -f "source/gradlew" ]; then
             PROJECT_TYPE="gradle"
             echo "Detected native Android (Gradle) project"
           fi
 
           if [ "$PROJECT_TYPE" = "unknown" ]; then
-            echo "::error::No supported project found. ThronosBuild supports: Flutter, React Native/Expo, Android Gradle."
+            echo "::error::No supported project found. ThronosBuild supports: Capacitor, Flutter, React Native/Expo, Android Gradle."
             echo "Files found:" && find source -maxdepth 3 -type f | head -40
             exit 1
           fi
@@ -241,6 +261,45 @@ jobs:
           chmod +x gradlew
           ./gradlew bundleRelease
 
+      # ────────── Capacitor Setup ──────────
+
+      - name: Set up Node.js (Capacitor)
+        if: steps.detect.outputs.type == 'capacitor'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Build Capacitor web app
+        if: steps.detect.outputs.type == 'capacitor'
+        working-directory: ${{ steps.detect.outputs.project_dir }}
+        run: |
+          echo "Running Capacitor build"
+          npm install
+          npm run build
+
+      - name: Sync Capacitor Android project
+        if: steps.detect.outputs.type == 'capacitor'
+        working-directory: ${{ steps.detect.outputs.project_dir }}
+        run: |
+          if [ ! -d "android" ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Build Capacitor APK
+        if: steps.detect.outputs.type == 'capacitor' && github.event.inputs.build_type == 'apk'
+        working-directory: ${{ steps.detect.outputs.project_dir }}/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Build Capacitor AAB
+        if: steps.detect.outputs.type == 'capacitor' && github.event.inputs.build_type == 'aab'
+        working-directory: ${{ steps.detect.outputs.project_dir }}/android
+        run: |
+          chmod +x gradlew
+          ./gradlew bundleRelease
+
       # ────────── Native Gradle ──────────
 
       - name: Build Gradle APK
@@ -263,7 +322,7 @@ jobs:
           if [ "$BUILD_TYPE" = "aab" ]; then
             ARTIFACT=$(find source -name "*.aab" -path "*/release/*" 2>/dev/null | head -1)
           else
-            ARTIFACT=$(find source -name "*.apk" -path "*/release/*" 2>/dev/null | head -1)
+            ARTIFACT=$(find source -name "*.apk" \( -path "*/debug/*" -o -path "*/release/*" \) 2>/dev/null | head -1)
           fi
 
           if [ -z "$ARTIFACT" ]; then
@@ -273,6 +332,9 @@ jobs:
           fi
 
           echo "path=$ARTIFACT" >> $GITHUB_OUTPUT
+          if [[ "$ARTIFACT" == *"/android/app/build/outputs/apk/debug/"* ]]; then
+            echo "Found Capacitor APK artifact: $ARTIFACT"
+          fi
           echo "Found artifact: $ARTIFACT"
 
       - name: Upload artifact

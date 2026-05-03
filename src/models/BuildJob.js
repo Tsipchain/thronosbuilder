@@ -31,6 +31,10 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING(100),
       defaultValue: 'main'
     },
+    project_path: {
+      type: DataTypes.STRING(255),
+      allowNull: true
+    },
     build_type: {
       type: DataTypes.ENUM('apk', 'aab', 'ipa', 'both'),
       allowNull: false
@@ -80,7 +84,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false
     },
     payment_status: {
-      type: DataTypes.ENUM('pending', 'paid', 'refunded'),
+      type: DataTypes.ENUM('pending', 'paid', 'refunded', 'internal_waived'),
       defaultValue: 'pending'
     },
     github_run_id: {
