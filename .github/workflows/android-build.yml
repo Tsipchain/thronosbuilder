@@ -17,6 +17,10 @@ on:
         description: 'Build type (apk or aab)'
         required: true
         default: 'apk'
+      project_path:
+        description: 'Optional project subdirectory path'
+        required: false
+        default: ''
       callback_url:
         description: 'Callback URL to notify on completion'
         required: false
@@ -40,7 +44,7 @@ jobs:
           CLONE_BRANCH="${{ github.event.inputs.branch }}"
 
           # Handle GitHub tree URLs (e.g. github.com/user/repo/tree/branch/subdir)
-          SUBDIR=""
+          SUBDIR="${{ github.event.inputs.project_path }}"
           if [[ "$SOURCE_URL" == *"/tree/"* ]]; then
             REPO_PART=$(echo "$SOURCE_URL" | sed -E 's|(https://github.com/[^/]+/[^/]+)/tree/.*|\1|')
             BRANCH_AND_PATH=$(echo "$SOURCE_URL" | sed -E 's|https://github.com/[^/]+/[^/]+/tree/||')

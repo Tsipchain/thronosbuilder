@@ -68,6 +68,7 @@ router.get('/', async (req, res) => {
         source_type: j.source_type,
         platform: j.platform,
         build_type: j.build_type,
+        project_path: j.project_path,
         status: j.status,
         progress: j.progress,
         cost_thron: j.cost_thron,
@@ -135,6 +136,7 @@ router.post('/', async (req, res) => {
       source_url,
       source_type = 'github',
       branch = 'main',
+      project_path = null,
       platform,
       build_type,
       project_name,
@@ -259,6 +261,7 @@ router.post('/', async (req, res) => {
       source_type,
       source_url,
       branch,
+      project_path,
       build_type,
       platform: effectivePlatform,
       cost_thron,
@@ -277,6 +280,7 @@ router.post('/', async (req, res) => {
       sourceUrl: source_url,
       sourceType: source_type,
       branch,
+      projectPath: project_path,
       platform: effectivePlatform,
       buildType: build_type,
       signingConfig: signing_config
@@ -325,10 +329,13 @@ router.get('/:jobId', async (req, res) => {
     res.json({
       job_id: job.id,
       project_name: job.project_name,
+      source_url: job.source_url,
+      branch: job.branch,
       status: job.status,
       progress: job.progress,
       platform: job.platform,
       build_type: job.build_type,
+      project_path: job.project_path,
       created_at: job.created_at,
       started_at: job.started_at,
       completed_at: job.completed_at,
@@ -370,6 +377,90 @@ router.get('/:jobId/logs', async (req, res) => {
   } catch (error) {
     console.error('Get logs error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Retry failed/cancelled paid build without charging again
+router.post('/:jobId/retry-paid', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { wallet_address, source_url, branch, project_path, build_type } = req.body || {};
+
+    if (!wallet_address) {
+      return res.status(400).json({ error: 'wallet_address required' });
+    }
+
+    const job = await BuildJob.findByPk(jobId, {
+      include: [{ model: User, attributes: ['wallet_address'] }]
+    });
+    if (!job) {
+      return res.status(404).json({ error: 'Build job not found' });
+    }
+
+    if (normalizeWalletAddress(job.User?.wallet_address) !== normalizeWalletAddress(wallet_address)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    if (!['failed', 'cancelled'].includes(job.status)) {
+      return res.status(400).json({ error: 'Job must be failed or cancelled to retry' });
+    }
+
+    if (!['paid', 'internal_waived'].includes(job.payment_status)) {
+      return res.status(400).json({ error: 'Job is not eligible for paid retry' });
+    }
+
+    const nextBuildType = build_type || job.build_type;
+    const nextCost = Number(calculateCost(job.platform, nextBuildType));
+    const originalCost = Number(job.cost_thron);
+
+    if (nextCost > originalCost) {
+      return res.status(402).json({
+        error: 'Additional payment required',
+        price_difference: nextCost - originalCost
+      });
+    }
+
+    const updatePayload = {
+      source_url: source_url || job.source_url,
+      branch: branch || job.branch,
+      project_path: typeof project_path === 'string' ? project_path : job.project_path,
+      build_type: nextBuildType,
+      status: 'pending',
+      progress: 0,
+      started_at: null,
+      completed_at: null,
+      android_artifact_url: null,
+      ios_artifact_url: null
+    };
+
+    if (Object.prototype.hasOwnProperty.call(job.dataValues, 'failure_reason')) {
+      updatePayload.failure_reason = null;
+    }
+
+    await job.update(updatePayload);
+
+    await addBuildJob(job.id, {
+      jobId: job.id,
+      sourceUrl: job.source_url,
+      sourceType: job.source_type,
+      branch: job.branch,
+      projectPath: job.project_path,
+      platform: job.platform,
+      buildType: job.build_type,
+      signingConfig: {}
+    });
+
+    return res.json({
+      success: true,
+      job_id: job.id,
+      status: 'pending',
+      payment_status: job.payment_status,
+      reused_payment: true,
+      message: 'Paid retry submitted without additional charge'
+    });
+  } catch (error) {
+    console.error('Retry paid error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

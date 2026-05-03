@@ -494,7 +494,9 @@ function renderBuilds(builds) {
       <div class="build-actions">
         ${b.status === 'success' ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); downloadArtifact('${b.job_id}', '${b.platform}')">Download</button>` : ''}
         ${b.status === 'building' || b.status === 'pending' ? `<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); cancelBuild('${b.job_id}')">Cancel</button>` : ''}
-        ${b.status === 'pending' || b.status === 'failed' ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); retryBuild('${b.job_id}')">Retry</button>` : ''}
+        ${b.status === 'pending' ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); retryBuild('${b.job_id}')">Retry</button>` : ''}
+        ${b.status === 'failed' && (b.payment_status === 'paid' || b.payment_status === 'internal_waived') ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); editAndRetryBuild('${b.job_id}')">Edit & Retry</button>` : ''}
+        ${b.status === 'failed' && !(b.payment_status === 'paid' || b.payment_status === 'internal_waived') ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); retryBuild('${b.job_id}')">Retry</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -1223,6 +1225,59 @@ async function cancelBuild(jobId) {
     } else {
       toast('Failed to cancel', 'error');
     }
+  } catch (e) {
+    toast('Network error', 'error');
+  }
+}
+
+
+async function editAndRetryBuild(jobId) {
+  if (!wallet.address) {
+    toast('Please connect your wallet first', 'error');
+    return;
+  }
+
+  try {
+    const detailRes = await fetch(`${API}/builds/${jobId}`);
+    const build = await detailRes.json();
+    if (!detailRes.ok) {
+      toast(build.error || 'Failed to load build details', 'error');
+      return;
+    }
+
+    const nextSourceUrl = prompt('Repository URL', build.source_url || 'https://github.com/Tsipchain/thronos-MEDICE');
+    if (nextSourceUrl === null) return;
+    const nextBranch = prompt('Branch', build.branch || 'main');
+    if (nextBranch === null) return;
+    const nextProjectPath = prompt('Project path (e.g. frontend)', build.project_path || 'frontend');
+    if (nextProjectPath === null) return;
+    const nextBuildType = normalizeBuildType(prompt('Build type (apk or aab)', build.build_type || 'apk'));
+
+    const res = await fetch(`${API}/builds/${jobId}/retry-paid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        wallet_address: wallet.address,
+        source_url: nextSourceUrl.trim(),
+        branch: (nextBranch || 'main').trim(),
+        project_path: (nextProjectPath || '').trim(),
+        build_type: nextBuildType,
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      if (res.status === 402 && typeof data.price_difference !== 'undefined') {
+        toast(`Additional payment required: +${data.price_difference} THR`, 'error');
+      } else {
+        toast(data.error || 'Retry failed', 'error');
+      }
+      return;
+    }
+
+    toast('Retry submitted without additional charge', 'success');
+    openBuildDetail(jobId);
+    loadBuilds();
   } catch (e) {
     toast('Network error', 'error');
   }
