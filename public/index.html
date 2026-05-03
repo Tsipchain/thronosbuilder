@@ -143,27 +143,69 @@
           <h3 style="margin-bottom:12px">Getting Started</h3>
           <ol style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
             <li>Connect your wallet</li>
-            <li>Click "New Build" and fill in your GitHub repo URL</li>
+            <li>Click "New Build" and choose your source type (GitHub, GitLab, or ZIP Upload)</li>
             <li>Select platform (Android/iOS/Both) and build type</li>
             <li>Confirm payment in THR tokens</li>
             <li>Watch your build in real-time via WebSocket logs</li>
             <li>Download your APK/IPA when the build completes</li>
           </ol>
         </div>
+
         <div class="stat-card" style="margin-bottom:16px">
-          <h3 style="margin-bottom:12px">Supported Source Types</h3>
+          <h3 style="margin-bottom:12px">GitHub &amp; GitLab Builds</h3>
+          <p style="color:var(--text-secondary); font-size:14px; line-height:1.8; margin-bottom:8px">
+            Connect a public or private repository by providing the clone URL and branch. The builder
+            clones your repo fresh for every build — no caching of source code between jobs.
+          </p>
           <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
-            <li><strong>GitHub</strong> — Public or private repos (with token)</li>
-            <li><strong>GitLab</strong> — Public or private repos</li>
-            <li><strong>ZIP Upload</strong> — Upload your source code directly</li>
-          </ul>
-          <h3 style="margin-bottom:12px; margin-top:16px">Supported Frameworks</h3>
-          <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
-            <li><strong>Flutter</strong> — Dart/Flutter apps (pubspec.yaml auto-detected)</li>
-            <li><strong>React Native</strong> — Standard RN or Expo projects</li>
-            <li><strong>Native Android</strong> — Gradle-based Android projects</li>
+            <li><strong>GitHub</strong> — Public repos work without credentials. Private repos require a Personal Access Token in the URL (<code>https://token@github.com/user/repo</code>).</li>
+            <li><strong>GitLab</strong> — Same pattern; use a GitLab Project Access Token.</li>
+            <li>Branch defaults to <code>main</code>; change it to any valid ref.</li>
           </ul>
         </div>
+
+        <div class="stat-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">ZIP Upload Builds</h3>
+          <p style="color:var(--text-secondary); font-size:14px; line-height:1.8; margin-bottom:8px">
+            Upload your project as a <code>.zip</code> archive instead of providing a repository URL.
+            Ideal for local projects, private code, or one-off builds.
+          </p>
+          <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
+            <li>Select <strong>ZIP Upload</strong> as the source type in the New Build modal.</li>
+            <li>Choose a <strong>Project Type</strong> or leave it on Auto-detect.</li>
+            <li>Optionally specify a <strong>Project Path</strong> if your app lives in a subdirectory (e.g. <code>frontend</code> or <code>mobile/app</code>).</li>
+            <li>The ZIP is uploaded first, then the build job is created automatically.</li>
+            <li><strong>Source ZIP is deleted after build completion.</strong></li>
+            <li>Final build artifacts (APK/AAB/IPA) are retained for <strong>7 days</strong>.</li>
+          </ul>
+        </div>
+
+        <div class="stat-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">Supported Frameworks</h3>
+          <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
+            <li><strong>Flutter</strong> — Dart/Flutter apps (<code>pubspec.yaml</code> auto-detected)</li>
+            <li><strong>React Native</strong> — Standard RN projects</li>
+            <li><strong>Expo</strong> — Managed and bare Expo workflows</li>
+            <li><strong>Capacitor</strong> — Ionic/Capacitor hybrid apps</li>
+            <li><strong>Gradle (Native Android)</strong> — Any standard Gradle-based Android project</li>
+            <li><strong>Unity</strong> — Unity Android APK/AAB export (Android build target required)</li>
+          </ul>
+          <p style="color:var(--text-secondary); font-size:13px; margin-top:8px; padding:8px 12px; background:var(--bg-primary); border-radius:6px; border-left:3px solid var(--blue);">
+            <strong>iOS note:</strong> iOS (IPA) builds require a signing configuration — a valid Apple
+            Distribution certificate and provisioning profile must be provided or pre-configured on the
+            build server. Ad-hoc and App Store distribution are both supported.
+          </p>
+        </div>
+
+        <div class="stat-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">Artifact Retention</h3>
+          <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
+            <li>Build artifacts (APK, AAB, IPA) are kept for <strong>7 days</strong> after a successful build.</li>
+            <li>Source ZIPs (ZIP Upload builds) are <strong>deleted immediately</strong> after the build completes.</li>
+            <li>Download your artifacts from the build detail page before they expire.</li>
+          </ul>
+        </div>
+
         <div class="stat-card">
           <h3 style="margin-bottom:12px">API Reference</h3>
           <div style="font-family:monospace; font-size:13px; color:var(--text-secondary); line-height:2">
@@ -172,6 +214,7 @@
             <div><strong style="color:var(--blue)">GET</strong> /api/v1/builds/:id/logs — Get build logs</div>
             <div><strong style="color:var(--red)">POST</strong> /api/v1/builds/:id/cancel — Cancel build</div>
             <div><strong style="color:var(--blue)">GET</strong> /api/v1/builds/:id/download/:platform — Download artifact</div>
+            <div><strong style="color:var(--green)">POST</strong> /api/v1/uploads/project-zip — Upload ZIP source</div>
             <div><strong style="color:var(--blue)">GET</strong> /api/v1/status/pricing — Get pricing</div>
             <div><strong style="color:var(--blue)">GET</strong> /api/v1/status/stats — Get system stats</div>
           </div>
@@ -192,20 +235,43 @@
         <div class="form-row">
           <div class="form-group">
             <label>Source Type</label>
-            <select name="source_type">
+            <select name="source_type" id="sourceTypeSelect">
               <option value="github">GitHub</option>
               <option value="gitlab">GitLab</option>
               <option value="zip">ZIP Upload</option>
             </select>
           </div>
-          <div class="form-group">
+          <div class="form-group" id="branchGroup">
             <label>Branch</label>
             <input type="text" name="branch" value="main" placeholder="main">
           </div>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="sourceUrlGroup">
           <label>Repository URL</label>
-          <input type="text" name="source_url" placeholder="https://github.com/user/repo" required>
+          <input type="text" name="source_url" id="sourceUrlInput" placeholder="https://github.com/user/repo" required>
+        </div>
+        <div class="form-group" id="zipFileGroup" style="display:none">
+          <label>Project ZIP File</label>
+          <input type="file" name="project_zip" accept=".zip">
+          <p style="font-size:12px; color:var(--text-secondary); margin-top:6px;">Upload your project as a .zip archive. Source ZIP is deleted after build. Final artifacts are kept for 7 days.</p>
+        </div>
+        <div class="form-row" id="zipMetaGroup" style="display:none">
+          <div class="form-group">
+            <label>Project Type</label>
+            <select name="project_type">
+              <option value="auto">Auto-detect</option>
+              <option value="capacitor">Capacitor</option>
+              <option value="flutter">Flutter</option>
+              <option value="react-native">React Native</option>
+              <option value="expo">Expo</option>
+              <option value="gradle">Gradle (Native Android)</option>
+              <option value="unity">Unity</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Project Path <span style="font-weight:400; color:var(--text-muted)">(optional)</span></label>
+            <input type="text" name="project_path" placeholder="frontend or mobile/app">
+          </div>
         </div>
         <div class="form-row">
           <div class="form-group">

@@ -506,7 +506,7 @@ function renderBuilds(builds) {
         ${b.status === 'success' ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); downloadArtifact('${b.job_id}', '${b.platform}')">Download</button>` : ''}
         ${b.status === 'building' || b.status === 'pending' ? `<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); cancelBuild('${b.job_id}')">Cancel</button>` : ''}
         ${b.status === 'pending' ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); retryBuild('${b.job_id}')">Retry</button>` : ''}
-        ${b.status === 'failed' && (b.payment_status === 'paid' || b.payment_status === 'internal_waived') ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); editAndRetryBuild('${b.job_id}')">Edit & Retry</button>` : ''}
+        ${b.status === 'failed' && (b.payment_status === 'paid' || b.payment_status === 'internal_waived') ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); editAndRetryBuild('${b.job_id}')">Edit &amp; Retry</button>` : ''}
         ${b.status === 'failed' && !(b.payment_status === 'paid' || b.payment_status === 'internal_waived') ? `<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); retryBuild('${b.job_id}')">Retry</button>` : ''}
       </div>
     </div>
@@ -651,8 +651,38 @@ function connectBuildWs(jobId) {
   };
 }
 
+// ─── Source Type UI Toggle ─────────────────────────────────────────────
+function updateSourceTypeUI() {
+  const form = document.getElementById('buildForm');
+  if (!form) return;
+  const isZip = form.source_type.value === 'zip';
+
+  const sourceUrlGroup = document.getElementById('sourceUrlGroup');
+  const sourceUrlInput = document.getElementById('sourceUrlInput');
+  const branchGroup = document.getElementById('branchGroup');
+  const zipFileGroup = document.getElementById('zipFileGroup');
+  const zipMetaGroup = document.getElementById('zipMetaGroup');
+
+  if (isZip) {
+    sourceUrlGroup.style.display = 'none';
+    sourceUrlInput.removeAttribute('required');
+    branchGroup.style.display = 'none';
+    zipFileGroup.style.display = 'block';
+    zipMetaGroup.style.display = 'flex';
+  } else {
+    sourceUrlGroup.style.display = 'block';
+    sourceUrlInput.setAttribute('required', '');
+    branchGroup.style.display = 'block';
+    zipFileGroup.style.display = 'none';
+    zipMetaGroup.style.display = 'none';
+  }
+}
+
 // ─── New Build Modal ───────────────────────────────────────────────────
 document.getElementById('newBuildBtn').addEventListener('click', openNewBuild);
+
+// Wire up source_type change
+document.getElementById('sourceTypeSelect').addEventListener('change', updateSourceTypeUI);
 
 function openNewBuild() {
   if (!wallet.address) {
@@ -680,12 +710,14 @@ function openNewBuild() {
     usdtChainSelect.style.display = method === 'usdt_evm' ? 'block' : 'none';
   }
 
+  updateSourceTypeUI();
   updateCost();
 }
 
 function closeNewBuild() {
   document.getElementById('newBuildModal').classList.remove('active');
   document.getElementById('buildForm').reset();
+  updateSourceTypeUI();
 }
 
 document.getElementById('newBuildModal').addEventListener('click', e => {
@@ -790,9 +822,92 @@ async function submitBuild(e) {
   btn.disabled = true;
   btn.textContent = 'Processing...';
 
+  const sourceType = form.source_type.value;
   const paymentMethod = form.payment_method?.value || 'thr';
 
   try {
+    // ── ZIP Upload flow ────────────────────────────────────────────────
+    if (sourceType === 'zip') {
+      const zipInput = form.querySelector('[name="project_zip"]');
+      if (!zipInput || !zipInput.files || !zipInput.files.length) {
+        toast('Please select a .zip file to upload', 'error');
+        return;
+      }
+      const zipFile = zipInput.files[0];
+      if (!zipFile.name.toLowerCase().endsWith('.zip')) {
+        toast('File must be a .zip archive', 'error');
+        return;
+      }
+
+      btn.textContent = 'Uploading ZIP...';
+      const uploadData = new FormData();
+      uploadData.append('wallet_address', wallet.address);
+      uploadData.append('project_name', form.project_name.value);
+      uploadData.append('platform', form.platform.value);
+      uploadData.append('build_type', normalizeBuildType(form.build_type.value));
+      uploadData.append('project_type', form.project_type?.value || 'auto');
+      uploadData.append('project_path', form.project_path?.value || '');
+      uploadData.append('file', zipFile);
+
+      const uploadRes = await fetch(`${API}/uploads/project-zip`, {
+        method: 'POST',
+        body: uploadData,
+      });
+      const uploadJson = await uploadRes.json();
+      if (!uploadRes.ok) {
+        toast(uploadJson.error || uploadJson.detail || 'ZIP upload failed', 'error');
+        return;
+      }
+
+      btn.textContent = 'Submitting Build...';
+      const body = {
+        wallet_address: wallet.address,
+        project_name: form.project_name.value,
+        source_type: 'zip',
+        source_url: uploadJson.source_url,
+        upload_id: uploadJson.upload_id,
+        upload_token: uploadJson.upload_token,
+        project_type: form.project_type?.value || 'auto',
+        project_path: form.project_path?.value || '',
+        platform: form.platform.value,
+        build_type: normalizeBuildType(form.build_type.value),
+        payment_method: paymentMethod,
+        payment_chain: wallet.chain,
+        branch: '',
+      };
+
+      if (paymentMethod === 'thr' || wallet.chain === 'thronos') {
+        const thrAuth = getThrAuth();
+        if (thrAuth) {
+          body.auth_secret = thrAuth.secret;
+        } else if (wallet.provider && wallet.provider === window.thronos) {
+          // Extension handles signing internally
+        } else {
+          toast('Session expired. Please reconnect your Thronos wallet.', 'error');
+          disconnectWallet();
+          return;
+        }
+      }
+
+      const res = await fetch(`${API}/builds`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        toast('Build submitted!', 'success');
+        closeNewBuild();
+        openBuildDetail(data.job_id);
+      } else {
+        toast(data.error || data.detail || 'Submission failed', 'error');
+      }
+      return;
+    }
+
+    // ── GitHub / GitLab flow ───────────────────────────────────────────
+
     // Step 0: Preflight — validate wallet & balance for THR payments
     if (paymentMethod === 'thr' || wallet.type === 'thronos') {
       btn.textContent = 'Checking wallet...';
@@ -833,12 +948,12 @@ async function submitBuild(e) {
     }
 
     // Step 2: Submit build job
-    btn.textContent = 'Submitting build...';
+    btn.textContent = 'Submitting Build...';
 
     const body = {
       wallet_address: wallet.address,
       project_name: form.project_name.value,
-      source_type: form.source_type.value,
+      source_type: sourceType,
       source_url: form.source_url.value,
       branch: form.branch.value || 'main',
       platform: form.platform.value,
@@ -1347,7 +1462,7 @@ async function loadPricing() {
       <h3>Android APK</h3>
       <div class="price">${pricingData.android.apk} <span class="unit">THR</span></div>
       <ul class="features">
-        <li>Debug & Release builds</li>
+        <li>Debug &amp; Release builds</li>
         <li>GitHub / GitLab / ZIP source</li>
         <li>Real-time build logs</li>
         <li>IPFS artifact storage</li>
@@ -1360,7 +1475,7 @@ async function loadPricing() {
       <div class="price">${pricingData.android.aab} <span class="unit">THR</span></div>
       <ul class="features">
         <li>Play Store ready</li>
-        <li>Signed & optimized</li>
+        <li>Signed &amp; optimized</li>
         <li>Real-time build logs</li>
         <li>IPFS artifact storage</li>
         <li>Pay with THR, ETH, USDT, USDC, BNB</li>
@@ -1372,7 +1487,7 @@ async function loadPricing() {
       <div class="price">${pricingData.ios.ipa} <span class="unit">THR</span></div>
       <ul class="features">
         <li>macOS cloud build</li>
-        <li>Ad-hoc & App Store distribution</li>
+        <li>Ad-hoc &amp; App Store distribution</li>
         <li>Real-time build logs</li>
         <li>IPFS artifact storage</li>
         <li>Pay with THR, ETH, USDT, USDC, BNB</li>
@@ -1386,7 +1501,7 @@ async function loadPricing() {
         <li>Android + iOS in one build</li>
         <li>Save ${pricingData.bundle_discount} THR bundle discount</li>
         <li>Parallel builds</li>
-        <li>Cross-chain fee → LP pools</li>
+        <li>Cross-chain fee &rarr; LP pools</li>
       </ul>
     </div>
   `;
