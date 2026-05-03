@@ -10,7 +10,7 @@ let redisError = null;
 let buildQueue = null;
 
 // ─── Build processor logic (shared by queue and inline) ─────────────
-async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, buildType, signingConfig }) {
+async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, projectPath, buildType, signingConfig }) {
   try {
     console.log(`🚀 Processing build job ${jobId} for platform: ${platform}`);
 
@@ -33,6 +33,7 @@ async function processBuild({ jobId, platform, sourceUrl, sourceType, branch, bu
         sourceUrl,
         sourceType,
         branch,
+        projectPath,
         buildType: buildType === 'both' ? 'apk' : buildType,
         signingConfig,
         onProgress: (progress, message) => {

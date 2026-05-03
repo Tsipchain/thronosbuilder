@@ -15,12 +15,33 @@ const {
   refundPayment,
   TREASURY_ADDRESS,
 } = require('../services/blockchain');
-
-// SECURITY: Phase 0 — require API key on all build routes
 const { requireApiKey } = require('../middleware/auth');
-router.use(requireApiKey);
 
-// List builds for a wallet
+function normalizeWalletAddress(walletAddress) {
+  return String(walletAddress || '').trim().toLowerCase();
+}
+
+function shortWallet(walletAddress) {
+  const value = String(walletAddress || '').trim();
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function isInternalFreeBuildWallet(walletAddress) {
+  if (process.env.BUILDER_ALLOW_INTERNAL_FREE_BUILDS !== 'true') {
+    return false;
+  }
+
+  const normalizedWallet = normalizeWalletAddress(walletAddress);
+  const allowlist = String(process.env.BUILDER_INTERNAL_FREE_WALLETS || '')
+    .split(',')
+    .map(w => normalizeWalletAddress(w))
+    .filter(Boolean);
+
+  return allowlist.includes(normalizedWallet);
+}
+
+// Public: List builds for a wallet
 router.get('/', async (req, res) => {
   try {
     const { wallet_address } = req.query;
@@ -47,6 +68,7 @@ router.get('/', async (req, res) => {
         source_type: j.source_type,
         platform: j.platform,
         build_type: j.build_type,
+        project_path: j.project_path,
         status: j.status,
         progress: j.progress,
         cost_thron: j.cost_thron,
@@ -63,7 +85,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Check wallet balance and validate before payment
+// Public: Check wallet balance and validate before payment
 router.post('/preflight', async (req, res) => {
   try {
     const { wallet_address, platform, build_type } = req.body;
@@ -106,7 +128,7 @@ router.post('/preflight', async (req, res) => {
   }
 });
 
-// Submit new build job
+// Public: Submit new build job
 router.post('/', async (req, res) => {
   try {
     const {
@@ -114,6 +136,7 @@ router.post('/', async (req, res) => {
       source_url,
       source_type = 'github',
       branch = 'main',
+      project_path = null,
       platform,
       build_type,
       project_name,
@@ -150,67 +173,77 @@ router.post('/', async (req, res) => {
 
     // Calculate cost
     const cost_thron = calculateCost(effectivePlatform, build_type);
+    const isInternalWaived = isInternalFreeBuildWallet(wallet_address);
 
     // ─── Payment Verification ───
 
     let paymentResult;
+    let paymentStatus = 'paid';
+    let successMessage = 'Build job submitted successfully';
 
-    if (payment_method === 'thronos' || payment_method === 'thr') {
-      // THR native payment: validate address first
-      if (!validateThrAddress(wallet_address)) {
-        return res.status(400).json({
-          error: 'Invalid THR wallet address',
-          hint: 'THR address format: THR + 40 hex characters',
-        });
-      }
-
-      if (tx_id) {
-        // User already sent payment, verify the transaction
-        paymentResult = await verifyPayment(wallet_address, cost_thron, tx_id);
-        if (!paymentResult.success) {
-          return res.status(402).json({
-            error: 'Payment transaction verification failed',
-            detail: paymentResult.error,
-            tx_id,
+    if (isInternalWaived) {
+      console.info(`Internal free build waived for wallet ${shortWallet(wallet_address)}`);
+      paymentResult = { success: true, txId: null, method: 'internal_waived' };
+      paymentStatus = 'internal_waived';
+      successMessage = 'Internal test build submitted successfully';
+    } else {
+      if (payment_method === 'thronos' || payment_method === 'thr') {
+        // THR native payment: validate address first
+        if (!validateThrAddress(wallet_address)) {
+          return res.status(400).json({
+            error: 'Invalid THR wallet address',
+            hint: 'THR address format: THR + 40 hex characters',
           });
         }
-      } else if (auth_secret) {
-        // Server-side payment: send THR from user wallet to treasury
-        paymentResult = await requestBuildPayment(
-          wallet_address, cost_thron, auth_secret, passphrase
-        );
-        if (!paymentResult.success) {
-          return res.status(402).json({
-            error: 'Payment failed',
-            detail: paymentResult.error,
-            required_amount: cost_thron,
-            treasury_address: TREASURY_ADDRESS,
-          });
+
+        if (tx_id) {
+          // User already sent payment, verify the transaction
+          paymentResult = await verifyPayment(wallet_address, cost_thron, tx_id);
+          if (!paymentResult.success) {
+            return res.status(402).json({
+              error: 'Payment transaction verification failed',
+              detail: paymentResult.error,
+              tx_id,
+            });
+          }
+        } else if (auth_secret) {
+          // Server-side payment: send THR from user wallet to treasury
+          paymentResult = await requestBuildPayment(
+            wallet_address, cost_thron, auth_secret, passphrase
+          );
+          if (!paymentResult.success) {
+            return res.status(402).json({
+              error: 'Payment failed',
+              detail: paymentResult.error,
+              required_amount: cost_thron,
+              treasury_address: TREASURY_ADDRESS,
+            });
+          }
+        } else {
+          // No auth_secret and no tx_id: check balance only
+          paymentResult = await verifyPayment(wallet_address, cost_thron);
+          if (!paymentResult.success) {
+            return res.status(402).json({
+              error: 'Insufficient THR balance',
+              detail: paymentResult.error,
+              required_amount: cost_thron,
+              treasury_address: TREASURY_ADDRESS,
+              hint: 'Send THR to treasury address or provide auth_secret for automatic payment',
+            });
+          }
         }
       } else {
-        // No auth_secret and no tx_id: check balance only
-        paymentResult = await verifyPayment(wallet_address, cost_thron);
-        if (!paymentResult.success) {
+        // Cross-chain payment (MetaMask/Phantom): verify tx_id exists
+        if (!tx_id) {
           return res.status(402).json({
-            error: 'Insufficient THR balance',
-            detail: paymentResult.error,
-            required_amount: cost_thron,
-            treasury_address: TREASURY_ADDRESS,
-            hint: 'Send THR to treasury address or provide auth_secret for automatic payment',
+            error: 'Transaction hash required for cross-chain payment',
+            hint: 'Complete the payment transaction and provide tx_id',
           });
         }
+        // Cross-chain tx verification is handled client-side
+        // We trust the tx_id for now; webhook/oracle can verify later
+        paymentResult = { success: true, txId: tx_id, method: 'cross_chain' };
       }
-    } else {
-      // Cross-chain payment (MetaMask/Phantom): verify tx_id exists
-      if (!tx_id) {
-        return res.status(402).json({
-          error: 'Transaction hash required for cross-chain payment',
-          hint: 'Complete the payment transaction and provide tx_id',
-        });
-      }
-      // Cross-chain tx verification is handled client-side
-      // We trust the tx_id for now; webhook/oracle can verify later
-      paymentResult = { success: true, txId: tx_id, method: 'cross_chain' };
     }
 
     // ─── Create Build Job ───
@@ -228,15 +261,18 @@ router.post('/', async (req, res) => {
       source_type,
       source_url,
       branch,
+      project_path,
       build_type,
       platform: effectivePlatform,
       cost_thron,
-      payment_status: 'paid',
+      payment_status: paymentStatus,
       status: 'pending'
     });
 
-    // Record payment on chain
-    await recordBuildPayment(job.id, wallet_address, cost_thron, paymentResult.txId);
+    // Record payment on chain for paid builds
+    if (!isInternalWaived) {
+      await recordBuildPayment(job.id, wallet_address, cost_thron, paymentResult.txId);
+    }
 
     // Add to build queue
     await addBuildJob(job.id, {
@@ -244,6 +280,7 @@ router.post('/', async (req, res) => {
       sourceUrl: source_url,
       sourceType: source_type,
       branch,
+      projectPath: project_path,
       platform: effectivePlatform,
       buildType: build_type,
       signingConfig: signing_config
@@ -253,10 +290,11 @@ router.post('/', async (req, res) => {
       success: true,
       job_id: job.id,
       status: 'pending',
+      payment_status: paymentStatus,
       platform: effectivePlatform,
       cost_thron,
       payment_tx: paymentResult.txId || null,
-      message: 'Build job submitted successfully',
+      message: successMessage,
       websocket_url: `/ws/builds/${job.id}`
     };
 
@@ -272,7 +310,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Get build status
+// Public: Get build status
 router.get('/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -291,10 +329,13 @@ router.get('/:jobId', async (req, res) => {
     res.json({
       job_id: job.id,
       project_name: job.project_name,
+      source_url: job.source_url,
+      branch: job.branch,
       status: job.status,
       progress: job.progress,
       platform: job.platform,
       build_type: job.build_type,
+      project_path: job.project_path,
       created_at: job.created_at,
       started_at: job.started_at,
       completed_at: job.completed_at,
@@ -310,7 +351,7 @@ router.get('/:jobId', async (req, res) => {
   }
 });
 
-// Get build logs
+// Public: Get build logs
 router.get('/:jobId/logs', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -339,8 +380,92 @@ router.get('/:jobId/logs', async (req, res) => {
   }
 });
 
-// Cancel build job
-router.post('/:jobId/cancel', async (req, res) => {
+// Public: Retry failed/cancelled paid build without charging again
+router.post('/:jobId/retry-paid', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { wallet_address, source_url, branch, project_path, build_type } = req.body || {};
+
+    if (!wallet_address) {
+      return res.status(400).json({ error: 'wallet_address required' });
+    }
+
+    const job = await BuildJob.findByPk(jobId, {
+      include: [{ model: User, attributes: ['wallet_address'] }]
+    });
+    if (!job) {
+      return res.status(404).json({ error: 'Build job not found' });
+    }
+
+    if (normalizeWalletAddress(job.User?.wallet_address) !== normalizeWalletAddress(wallet_address)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    if (!['failed', 'cancelled'].includes(job.status)) {
+      return res.status(400).json({ error: 'Job must be failed or cancelled to retry' });
+    }
+
+    if (!['paid', 'internal_waived'].includes(job.payment_status)) {
+      return res.status(400).json({ error: 'Job is not eligible for paid retry' });
+    }
+
+    const nextBuildType = build_type || job.build_type;
+    const nextCost = Number(calculateCost(job.platform, nextBuildType));
+    const originalCost = Number(job.cost_thron);
+
+    if (nextCost > originalCost) {
+      return res.status(402).json({
+        error: 'Additional payment required',
+        price_difference: nextCost - originalCost
+      });
+    }
+
+    const updatePayload = {
+      source_url: source_url || job.source_url,
+      branch: branch || job.branch,
+      project_path: typeof project_path === 'string' ? project_path : job.project_path,
+      build_type: nextBuildType,
+      status: 'pending',
+      progress: 0,
+      started_at: null,
+      completed_at: null,
+      android_artifact_url: null,
+      ios_artifact_url: null
+    };
+
+    if (Object.prototype.hasOwnProperty.call(job.dataValues, 'failure_reason')) {
+      updatePayload.failure_reason = null;
+    }
+
+    await job.update(updatePayload);
+
+    await addBuildJob(job.id, {
+      jobId: job.id,
+      sourceUrl: job.source_url,
+      sourceType: job.source_type,
+      branch: job.branch,
+      projectPath: job.project_path,
+      platform: job.platform,
+      buildType: job.build_type,
+      signingConfig: {}
+    });
+
+    return res.json({
+      success: true,
+      job_id: job.id,
+      status: 'pending',
+      payment_status: job.payment_status,
+      reused_payment: true,
+      message: 'Paid retry submitted without additional charge'
+    });
+  } catch (error) {
+    console.error('Retry paid error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Protected: Cancel build job
+router.post('/:jobId/cancel', requireApiKey, async (req, res) => {
   try {
     const { jobId } = req.params;
 
@@ -367,8 +492,8 @@ router.post('/:jobId/cancel', async (req, res) => {
   }
 });
 
-// Retry a stuck/failed build
-router.post('/:jobId/retry', async (req, res) => {
+// Protected: Retry a stuck/failed build
+router.post('/:jobId/retry', requireApiKey, async (req, res) => {
   try {
     const { jobId } = req.params;
     const result = await retryBuild(jobId);
@@ -383,8 +508,8 @@ router.post('/:jobId/retry', async (req, res) => {
   }
 });
 
-// Queue/Redis status (debug)
-router.get('/system/status', async (req, res) => {
+// Protected: Queue/Redis status (debug)
+router.get('/system/status', requireApiKey, async (req, res) => {
   const redis = getRedisStatus();
   res.json({ redis, queue_mode: redis.connected ? 'redis' : 'inline' });
 });
