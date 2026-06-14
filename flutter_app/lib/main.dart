@@ -9,6 +9,7 @@ import 'providers/driver_provider.dart';
 import 'providers/verify_provider.dart';
 import 'providers/blockchain_provider.dart';
 import 'providers/call_center_provider.dart';
+import 'services/wallet_connect_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,9 +33,10 @@ class ThronosApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => VerifyProvider()),
         ChangeNotifierProvider(create: (_) => BlockchainProvider()),
         ChangeNotifierProvider(create: (_) => CallCenterProvider()),
+        ChangeNotifierProvider(create: (_) => WalletConnectService()),
       ],
       child: MaterialApp.router(
-        title: 'Thronos Driver & Verify',
+        title: 'Thronos Wallet v2',
         debugShowCheckedModeBanner: false,
         theme: ThronosTheme.light,
         darkTheme: ThronosTheme.dark,
