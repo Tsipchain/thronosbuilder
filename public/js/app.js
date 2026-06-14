@@ -195,13 +195,32 @@ function showThronosConnectModal() {
       <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Choose how to connect your THR wallet to pay for builds.</p>
 
       <!-- Tab selector -->
-      <div style="display:flex;gap:8px;margin-bottom:16px">
-        <button id="tabSecretBtn" onclick="switchThrTab('secret')" class="btn btn-primary" style="flex:1;font-size:12px">Address + Secret</button>
-        <button id="tabKeyBtn" onclick="switchThrTab('key')" class="btn btn-secondary" style="flex:1;font-size:12px">Import Signing Key</button>
+      <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+        <button id="tabRecoveryBtn" onclick="switchThrTab('recovery')" class="btn btn-primary" style="flex:1;font-size:12px;min-width:110px">Recovery JSON</button>
+        <button id="tabSecretBtn" onclick="switchThrTab('secret')" class="btn btn-secondary" style="flex:1;font-size:12px;min-width:110px">Address + Secret</button>
+        <button id="tabKeyBtn" onclick="switchThrTab('key')" class="btn btn-secondary" style="flex:1;font-size:12px;min-width:110px">Hex Key</button>
+      </div>
+
+      <!-- Tab: Recovery JSON -->
+      <div id="tabRecovery">
+        <div style="margin-bottom:12px">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Recovery JSON file</label>
+          <input type="file" id="thrRecoveryFile" accept=".json,application/json" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px" />
+          <span style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:block">The .json file exported from your Thronos wallet.</span>
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Wallet PIN</label>
+          <input type="password" id="thrRecoveryPin" placeholder="Your wallet PIN" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:13px" />
+        </div>
+        <div id="thrRecoveryError" style="display:none;color:var(--red);font-size:12px;margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px">
+          <button onclick="document.getElementById('thronosConnectOverlay').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
+          <button onclick="submitThronosRecovery()" class="btn btn-primary" style="flex:1" id="thrRecoveryBtn">Unlock &amp; Connect</button>
+        </div>
       </div>
 
       <!-- Tab: Address + Secret -->
-      <div id="tabSecret">
+      <div id="tabSecret" style="display:none">
         <div style="margin-bottom:12px">
           <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">THR Address</label>
           <input type="text" id="thrAddrInput" placeholder="THRa60e1cef..." style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
@@ -237,13 +256,51 @@ function showThronosConnectModal() {
 }
 
 function switchThrTab(tab) {
-  document.getElementById('tabSecret').style.display = tab === 'secret' ? 'block' : 'none';
-  document.getElementById('tabKey').style.display    = tab === 'key'    ? 'block' : 'none';
-  document.getElementById('tabSecretBtn').className  = tab === 'secret' ? 'btn btn-primary' : 'btn btn-secondary';
-  document.getElementById('tabKeyBtn').className     = tab === 'key'    ? 'btn btn-primary' : 'btn btn-secondary';
-  if (tab === 'secret') document.getElementById('tabSecretBtn').style.flex = '1';
+  document.getElementById('tabRecovery').style.display = tab === 'recovery' ? 'block' : 'none';
+  document.getElementById('tabSecret').style.display   = tab === 'secret'   ? 'block' : 'none';
+  document.getElementById('tabKey').style.display      = tab === 'key'      ? 'block' : 'none';
+  document.getElementById('tabRecoveryBtn').className  = tab === 'recovery' ? 'btn btn-primary' : 'btn btn-secondary';
+  document.getElementById('tabSecretBtn').className    = tab === 'secret'   ? 'btn btn-primary' : 'btn btn-secondary';
+  document.getElementById('tabKeyBtn').className       = tab === 'key'      ? 'btn btn-primary' : 'btn btn-secondary';
 }
 switchThrTab.toString; // expose to inline onclick
+
+async function submitThronosRecovery() {
+  const bridge = window.ThronosBuilderWallet;
+  const fileInput = document.getElementById('thrRecoveryFile');
+  const pin = document.getElementById('thrRecoveryPin')?.value?.trim();
+  const btn = document.getElementById('thrRecoveryBtn');
+  const errEl = document.getElementById('thrRecoveryError');
+
+  if (!fileInput?.files?.[0]) { toast('Please select a recovery JSON file', 'error'); return; }
+  if (!pin) { toast('PIN is required', 'error'); return; }
+  if (!bridge) { toast('Wallet bridge not loaded', 'error'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Decrypting...'; }
+  if (errEl) errEl.style.display = 'none';
+  try {
+    const jsonText = await fileInput.files[0].text();
+    const r = await bridge.connectWithRecoveryJson(jsonText, pin);
+    if (!r.ok) {
+      const msg = r.reason === 'wrong_pin' ? 'Wrong PIN — decryption failed. Check your PIN and try again.' :
+                  r.reason === 'unrecognized_recovery_format' ? 'Unrecognized JSON format. Is this a Thronos wallet backup file?' :
+                  'Recovery failed: ' + r.reason;
+      if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+      else toast(msg, 'error');
+      return;
+    }
+    document.getElementById('thronosConnectOverlay')?.remove();
+    setWalletConnected(r.address, 'thronos', 'thronos');
+    wallet.provider = bridge;
+    toast('Wallet unlocked! Address: ' + r.address.slice(0,10) + '...', 'success');
+  } catch (err) {
+    const msg = 'Error: ' + err.message;
+    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    else toast(msg, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Unlock & Connect'; }
+  }
+}
 
 async function submitThronosConnect() {
   const addr   = document.getElementById('thrAddrInput').value.trim();
@@ -774,33 +831,24 @@ async function _attachThrPayment(body, paymentMethod) {
 
   const bridge = window.ThronosBuilderWallet;
 
-  // A: Bridge available and connected with session or key → client-side payment
-  if (bridge && bridge.isConnected() &&
-      (bridge._getMethod?.() === 'session' || bridge._getMethod?.() === 'key')) {
+  if (bridge && bridge.isConnected()) {
+    const to = currentQuote?.treasury_address || '';
+    const amount = currentQuote?.native_cost_thr || 0;
     try {
-      const TREASURY_THR = currentQuote?.treasury_address || '';
-      const amount = currentQuote?.native_cost_thr || 0;
-      if (TREASURY_THR && amount) {
-        const payResult = await bridge.pay({ to: TREASURY_THR, amount });
-        if (payResult.ok && payResult.tx_id) {
-          body.tx_id = payResult.tx_id;
-          body.payment_method = 'thr';
-          return;
-        }
+      const payResult = await bridge.pay({ to, amount });
+      if (payResult.ok && payResult.tx_id) {
+        body.tx_id = payResult.tx_id;
+        body.payment_method = 'thr';
+        return;
+      }
+      if (payResult.ok && payResult.auth_secret) {
+        body.auth_secret = payResult.auth_secret;
+        return;
       }
     } catch (_) { /* fall through to legacy */ }
   }
 
-  // B: Bridge available with secret
-  if (bridge && bridge.isConnected()) {
-    const payResult = await bridge.pay({ to: '', amount: 0 });
-    if (payResult.ok && payResult.auth_secret) {
-      body.auth_secret = payResult.auth_secret;
-      return;
-    }
-  }
-
-  // C: Legacy sessionStorage
+  // Fallback: legacy sessionStorage
   const thrAuth = getThrAuth();
   if (thrAuth?.secret) {
     body.auth_secret = thrAuth.secret;
