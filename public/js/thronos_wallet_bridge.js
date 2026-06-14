@@ -142,16 +142,21 @@
 
         // Detect recovery kit format — check all known key names
         let encryptedBlob = null;
+        let kitAddress = null;
+
         if (parsed.encrypted_private_key_backup) {
           // Official format from walletV1GenerateRecoveryKit():
           // { version, canonical_v1_address, encrypted_private_key_backup, ... }
           encryptedBlob = parsed.encrypted_private_key_backup;
+          kitAddress = parsed.canonical_v1_address || null;
         } else if (parsed.wallet_v1_encrypted_priv) {
           // Legacy localStorage export
           encryptedBlob = parsed.wallet_v1_encrypted_priv;
+          kitAddress = parsed.wallet_v1_address || parsed.wallet_v1_canonical_address || null;
         } else if (parsed.wallet_v1_encrypted_private_key) {
           // Normalized key variant
           encryptedBlob = parsed.wallet_v1_encrypted_private_key;
+          kitAddress = parsed.wallet_v1_canonical_address || parsed.wallet_v1_address || null;
         } else if (parsed.v === 1 && parsed.salt && parsed.iv && parsed.ct) {
           // Raw encrypted blob
           encryptedBlob = parsed;
@@ -159,13 +164,31 @@
           return { ok: false, reason: 'unrecognized_recovery_format' };
         }
 
-        const privHex = await _decryptPrivateKey(encryptedBlob, pin);
-        if (!privHex || privHex.length !== 64) return { ok: false, reason: 'decrypt_failed_check_pin' };
+        // Wrap decrypt in own try-catch — any DOMException (wrong PIN) is caught here.
+        // Chrome's AES-GCM failure throws DOMException with e.name='OperationError'
+        // but e.message='' (empty), so we can't rely on message content.
+        let privHex;
+        try {
+          privHex = await _decryptPrivateKey(encryptedBlob, pin);
+        } catch (_) {
+          return { ok: false, reason: 'wrong_pin' };
+        }
+        if (!privHex || privHex.length !== 64) return { ok: false, reason: 'wrong_pin' };
 
+        // Same philosophy as main repo (walletV1RestoreFromRecoveryKit in base.html):
+        // trust canonical_v1_address from the kit — no external API call needed.
+        if (kitAddress && THR_ADDR_RE.test(kitAddress)) {
+          const clean = privHex.replace(/^0x/, '');
+          _state = { address: kitAddress, privateKey: clean, secret: null, method: 'key' };
+          return { ok: true, address: kitAddress };
+        }
+
+        // Fallback: no address in kit, derive it from the key
         return await this.connectWithPrivateKey(privHex);
       } catch (e) {
-        const msg = e.message || '';
-        if (msg.includes('OperationError') || msg.includes('decrypt') || msg.includes('operation')) {
+        const name = (e.name || '').toLowerCase();
+        const msg = (e.message || '').toLowerCase();
+        if (name === 'operationerror' || msg.includes('decrypt') || msg.includes('operation')) {
           return { ok: false, reason: 'wrong_pin' };
         }
         return { ok: false, reason: e.message || 'recovery_failed' };
