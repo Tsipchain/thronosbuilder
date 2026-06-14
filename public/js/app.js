@@ -106,13 +106,10 @@ document.getElementById('connectWallet').addEventListener('click', () => {
 
 function closeWalletModal() { document.getElementById('walletModal').classList.remove('active'); }
 
-document.getElementById('walletModal').addEventListener('click', e => {
-  if (e.target.classList.contains('modal-overlay')) closeWalletModal();
-});
-
 function disconnectWallet() {
   wallet = { address: null, type: null, chain: null, provider: null };
   sessionStorage.removeItem('thr_auth');
+  if (window.ThronosBuilderWallet) window.ThronosBuilderWallet.disconnect();
   const btn = document.getElementById('connectWallet');
   btn.textContent = 'Connect Wallet';
   btn.classList.remove('connected');
@@ -135,11 +132,14 @@ function setWalletConnected(address, type, chain) {
   loadDashboard();
 }
 
+// Legacy session storage helpers (kept for compat)
 function storeThrAuth(address, secret) {
-  sessionStorage.setItem('thr_auth', btoa(JSON.stringify({ a: address, s: secret, t: Date.now() })));
+  if (window.ThronosBuilderWallet) window.ThronosBuilderWallet.storeSession(address, secret);
+  else sessionStorage.setItem('thr_auth', btoa(JSON.stringify({ a: address, s: secret, t: Date.now() })));
 }
 
 function getThrAuth() {
+  if (window.ThronosBuilderWallet) return window.ThronosBuilderWallet.getStoredSession();
   try {
     const raw = sessionStorage.getItem('thr_auth');
     if (!raw) return null;
@@ -149,51 +149,101 @@ function getThrAuth() {
   } catch { return null; }
 }
 
-// ─── Thronos Wallet ────────────────────────────────────────────────────
+// ─── Thronos Wallet (v2 integration) ─────────────────────────────────
 async function connectThronosWallet() {
-  if (typeof window.thronos !== 'undefined') {
-    try {
-      const resp = await window.thronos.connect();
-      setWalletConnected(resp.address, 'thronos', 'thronos');
-      wallet.provider = window.thronos;
+  const bridge = window.ThronosBuilderWallet;
+
+  // 1. Try auto-connect from existing walletSession (thronos-v3.6 wallet already loaded)
+  if (bridge) {
+    const auto = bridge.autoConnect();
+    if (auto.ok) {
+      setWalletConnected(auto.address, 'thronos', 'thronos');
+      wallet.provider = bridge;
+      toast('Connected from Thronos Wallet session', 'success');
       return;
-    } catch { toast('Thronos wallet connection rejected', 'error'); return; }
+    }
+
+    // 2. Try restoring from sessionStorage
+    const stored = bridge.getStoredSession();
+    if (stored && /^THR[a-fA-F0-9]{40}$/.test(stored.address)) {
+      bridge.connectWithSecret(stored.address, stored.secret);
+      setWalletConnected(stored.address, 'thronos', 'thronos');
+      wallet.provider = bridge;
+      toast('Reconnected from session', 'success');
+      return;
+    }
+  } else {
+    // Legacy: no bridge, try session
+    const cached = getThrAuth();
+    if (cached && /^THR[a-fA-F0-9]{40}$/.test(cached.address)) {
+      setWalletConnected(cached.address, 'thronos', 'thronos');
+      return;
+    }
   }
+
+  // 3. Show connect modal (import key or address+secret)
   showThronosConnectModal();
 }
 
 function showThronosConnectModal() {
-  const cached = getThrAuth();
-  if (cached && /^THR[a-fA-F0-9]{40}$/.test(cached.address)) {
-    setWalletConnected(cached.address, 'thronos', 'thronos');
-    toast('Reconnected from session', 'success');
-    return;
-  }
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay active';
   overlay.id = 'thronosConnectOverlay';
   overlay.innerHTML = `
-    <div class="modal" style="max-width:420px">
+    <div class="modal" style="max-width:460px">
       <h2 style="margin-bottom:4px">Connect Thronos Wallet</h2>
-      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Enter your THR address and send secret to enable payments.<br>Your secret is stored encrypted in this session only.</p>
-      <div style="margin-bottom:12px">
-        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">THR Address</label>
-        <input type="text" id="thrAddrInput" placeholder="THRa60e1cef..." style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
+      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Choose how to connect your THR wallet to pay for builds.</p>
+
+      <!-- Tab selector -->
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button id="tabSecretBtn" onclick="switchThrTab('secret')" class="btn btn-primary" style="flex:1;font-size:12px">Address + Secret</button>
+        <button id="tabKeyBtn" onclick="switchThrTab('key')" class="btn btn-secondary" style="flex:1;font-size:12px">Import Signing Key</button>
       </div>
-      <div style="margin-bottom:16px">
-        <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Send Secret</label>
-        <input type="password" id="thrSecretInput" placeholder="Your auth secret from pledge" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
-        <span style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:block">Required for payments. Never shared with third parties.</span>
+
+      <!-- Tab: Address + Secret -->
+      <div id="tabSecret">
+        <div style="margin-bottom:12px">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">THR Address</label>
+          <input type="text" id="thrAddrInput" placeholder="THRa60e1cef..." style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Send Secret</label>
+          <input type="password" id="thrSecretInput" placeholder="Your auth secret from pledge" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
+          <span style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:block">Required for payments. Used only in this session.</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="document.getElementById('thronosConnectOverlay').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
+          <button onclick="submitThronosConnect()" class="btn btn-primary" style="flex:1" id="thrConnectBtn">Connect</button>
+        </div>
       </div>
-      <div style="display:flex;gap:8px">
-        <button onclick="document.getElementById('thronosConnectOverlay').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
-        <button onclick="submitThronosConnect()" class="btn btn-primary" style="flex:1" id="thrConnectBtn">Connect</button>
+
+      <!-- Tab: Import Signing Key -->
+      <div id="tabKey" style="display:none">
+        <div style="margin-bottom:16px">
+          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Private Key (hex)</label>
+          <input type="password" id="thrKeyInput" placeholder="64-character hex key (with or without 0x)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
+          <span style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:block">Your signing key is never sent to any server. Payment is signed client-side.</span>
+        </div>
+        <div id="thrKeyError" style="display:none;color:var(--red);font-size:12px;margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px">
+          <button onclick="document.getElementById('thronosConnectOverlay').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
+          <button onclick="submitThronosKeyImport()" class="btn btn-primary" style="flex:1" id="thrKeyConnectBtn">Import &amp; Connect</button>
+        </div>
       </div>
     </div>`;
   document.body.appendChild(overlay);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-  document.getElementById('thrAddrInput').focus();
+  document.getElementById('thrAddrInput')?.focus();
 }
+
+function switchThrTab(tab) {
+  document.getElementById('tabSecret').style.display = tab === 'secret' ? 'block' : 'none';
+  document.getElementById('tabKey').style.display    = tab === 'key'    ? 'block' : 'none';
+  document.getElementById('tabSecretBtn').className  = tab === 'secret' ? 'btn btn-primary' : 'btn btn-secondary';
+  document.getElementById('tabKeyBtn').className     = tab === 'key'    ? 'btn btn-primary' : 'btn btn-secondary';
+  if (tab === 'secret') document.getElementById('tabSecretBtn').style.flex = '1';
+}
+switchThrTab.toString; // expose to inline onclick
 
 async function submitThronosConnect() {
   const addr   = document.getElementById('thrAddrInput').value.trim();
@@ -210,13 +260,41 @@ async function submitThronosConnect() {
       toast('Address not found on Thronos chain', 'error');
       btn.disabled = false; btn.textContent = 'Connect'; return;
     }
-    storeThrAuth(addr, secret);
+    if (window.ThronosBuilderWallet) {
+      window.ThronosBuilderWallet.connectWithSecret(addr, secret);
+      window.ThronosBuilderWallet.storeSession(addr, secret);
+    } else {
+      storeThrAuth(addr, secret);
+    }
     setWalletConnected(addr, 'thronos', 'thronos');
+    wallet.provider = window.ThronosBuilderWallet || 'manual';
     document.getElementById('thronosConnectOverlay').remove();
     if (data.balance !== null) toast(`Connected! Balance: ${data.balance} THR`, 'success');
   } catch (err) {
     toast('Connection error: ' + err.message, 'error');
     btn.disabled = false; btn.textContent = 'Connect';
+  }
+}
+
+async function submitThronosKeyImport() {
+  const keyInput = document.getElementById('thrKeyInput');
+  const errEl    = document.getElementById('thrKeyError');
+  const btn      = document.getElementById('thrKeyConnectBtn');
+  const hexKey   = keyInput.value.trim();
+  if (!hexKey) { errEl.textContent = 'Private key required'; errEl.style.display = 'block'; return; }
+  if (!window.ThronosBuilderWallet) { errEl.textContent = 'Wallet bridge not loaded'; errEl.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = 'Importing...';
+  errEl.style.display = 'none';
+  try {
+    const result = await window.ThronosBuilderWallet.connectWithPrivateKey(hexKey);
+    if (!result.ok) { errEl.textContent = 'Error: ' + result.reason; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Import & Connect'; return; }
+    setWalletConnected(result.address, 'thronos', 'thronos');
+    wallet.provider = window.ThronosBuilderWallet;
+    document.getElementById('thronosConnectOverlay').remove();
+    toast(`Signing key imported! Address: ${result.address.slice(0,10)}...`, 'success');
+  } catch (err) {
+    errEl.textContent = 'Error: ' + err.message; errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Import & Connect';
   }
 }
 
@@ -456,7 +534,6 @@ function applyIosGuard() {
 }
 
 // ─── Quote / Cost Display ───────────────────────────────────────────────
-// Calls preflight to get a server-side quote; updates cost display.
 async function updateCost() {
   const form = document.getElementById('buildForm');
   if (!form) return;
@@ -529,7 +606,6 @@ async function openNewBuild() {
   const usdtChainSelect = document.getElementById('usdtChainSelect');
   if (usdtChainSelect) usdtChainSelect.style.display = method === 'usdt_evm' ? 'block' : 'none';
 
-  // Load pricing meta (ios_enabled, floors) if not yet fetched
   if (!pricingData) {
     try {
       const res = await fetch(`${API}/status/pricing`);
@@ -553,7 +629,7 @@ document.getElementById('newBuildModal').addEventListener('click', e => {
   if (e.target.classList.contains('modal-overlay')) closeNewBuild();
 });
 
-// ─── Preflight (THR wallet validation for submit) ──────────────────────
+// ─── Preflight ─────────────────────────────────────────────────────────
 async function preflightCheck(walletAddress, platform, buildType, paymentMethod) {
   try {
     const res = await fetch(`${API}/builds/preflight`, {
@@ -621,13 +697,7 @@ async function submitBuild(e) {
         branch: '',
         quote_id: currentQuote?.quote_id || null,
       };
-      if (paymentMethod === 'thr' || wallet.chain === 'thronos') {
-        const thrAuth = getThrAuth();
-        if (thrAuth) body.auth_secret = thrAuth.secret;
-        else if (!(wallet.provider && wallet.provider === window.thronos)) {
-          toast('Session expired. Please reconnect your Thronos wallet.', 'error'); disconnectWallet(); return;
-        }
-      }
+      await _attachThrPayment(body, paymentMethod);
       const res  = await fetch(`${API}/builds`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json();
       if (res.ok) { toast('Build submitted!', 'success'); closeNewBuild(); openBuildDetail(data.job_id); }
@@ -636,21 +706,17 @@ async function submitBuild(e) {
     }
 
     // ── GitHub / GitLab flow ───────────────────────────────────────────
-
-    // Ensure we have a fresh quote (could have expired if user was idle)
     if (!currentQuote || new Date(currentQuote.quote_expires_at) < new Date()) {
       btn.textContent = 'Fetching quote...';
       await updateCost();
       if (!currentQuote) { toast('Could not fetch pricing. Please try again.', 'error'); return; }
     }
 
-    // Cross-chain: require a valid quote from backend
     const isCrossChain = paymentMethod !== 'thr' && paymentMethod !== 'thronos';
     if (isCrossChain && !currentQuote) {
       toast('Pricing not loaded. Please wait a moment and try again.', 'error'); return;
     }
 
-    // THR preflight: validate wallet + balance
     if (paymentMethod === 'thr' || wallet.type === 'thronos') {
       btn.textContent = 'Checking wallet...';
       const preflight = await preflightCheck(wallet.address, form.platform.value, form.build_type.value, paymentMethod);
@@ -659,11 +725,9 @@ async function submitBuild(e) {
       if (preflight.balance !== null && preflight.can_afford === false) {
         toast(`Insufficient balance: ${preflight.balance} THR. Need: ${preflight.native_cost_thr} THR`, 'error'); return;
       }
-      // Update currentQuote with freshest quote_id from this preflight call
       if (preflight.quote_id) currentQuote = preflight;
     }
 
-    // Process cross-chain payment
     let paymentProof = null;
     if (isCrossChain) {
       btn.textContent = 'Awaiting wallet...';
@@ -687,13 +751,7 @@ async function submitBuild(e) {
       quote_id:       currentQuote?.quote_id || null,
     };
 
-    if (paymentMethod === 'thr' || wallet.chain === 'thronos') {
-      const thrAuth = getThrAuth();
-      if (thrAuth) body.auth_secret = thrAuth.secret;
-      else if (!(wallet.provider && wallet.provider === window.thronos)) {
-        toast('Session expired. Please reconnect your Thronos wallet.', 'error'); disconnectWallet(); return;
-      }
-    }
+    await _attachThrPayment(body, paymentMethod);
 
     const res  = await fetch(`${API}/builds`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
@@ -704,6 +762,48 @@ async function submitBuild(e) {
     toast('Error: ' + err.message, 'error');
   } finally {
     btn.disabled = false; btn.textContent = 'Submit Build';
+  }
+}
+
+/**
+ * Attach THR payment info to a build body.
+ * Priority: ThronosBuilderWallet.pay() (client-side tx_id) > auth_secret (legacy)
+ */
+async function _attachThrPayment(body, paymentMethod) {
+  if (paymentMethod !== 'thr' && paymentMethod !== 'thronos') return;
+
+  const bridge = window.ThronosBuilderWallet;
+
+  // A: Bridge available and connected with session or key → client-side payment
+  if (bridge && bridge.isConnected() &&
+      (bridge._getMethod?.() === 'session' || bridge._getMethod?.() === 'key')) {
+    try {
+      const TREASURY_THR = currentQuote?.treasury_address || '';
+      const amount = currentQuote?.native_cost_thr || 0;
+      if (TREASURY_THR && amount) {
+        const payResult = await bridge.pay({ to: TREASURY_THR, amount });
+        if (payResult.ok && payResult.tx_id) {
+          body.tx_id = payResult.tx_id;
+          body.payment_method = 'thr';
+          return;
+        }
+      }
+    } catch (_) { /* fall through to legacy */ }
+  }
+
+  // B: Bridge available with secret
+  if (bridge && bridge.isConnected()) {
+    const payResult = await bridge.pay({ to: '', amount: 0 });
+    if (payResult.ok && payResult.auth_secret) {
+      body.auth_secret = payResult.auth_secret;
+      return;
+    }
+  }
+
+  // C: Legacy sessionStorage
+  const thrAuth = getThrAuth();
+  if (thrAuth?.secret) {
+    body.auth_secret = thrAuth.secret;
   }
 }
 
@@ -719,7 +819,6 @@ async function processCrossChainPayment(method, form) {
 async function processBtcBridgePayment(form) {
   if (!currentQuote) { toast('No pricing quote available', 'error'); return null; }
   const btcAmount = currentQuote.external_amount;
-
   try {
     toast('Requesting BTC bridge deposit address...', 'success');
     const res = await fetch(`${API}/payments/btc-bridge/prepare`, {
@@ -742,9 +841,8 @@ async function processPhantomPayment(form) {
   const phantom = wallet.provider;
   if (!phantom) { toast('Phantom wallet not connected', 'error'); return null; }
   if (!currentQuote) { toast('No pricing quote available', 'error'); return null; }
-
   try {
-    const usdcAmount = currentQuote.external_amount * 1e6; // USDC 6 decimals
+    const usdcAmount = currentQuote.external_amount * 1e6;
     const paymentRes = await fetch(`${API}/payments/solana/prepare`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ payer: wallet.address, amount_usdc: usdcAmount, service_type: 'builder_build', treasury: TREASURY.solana }),
@@ -763,15 +861,13 @@ async function processPhantomPayment(form) {
 async function processEVMPayment(method, form) {
   if (!wallet.provider) { toast('MetaMask not connected', 'error'); return null; }
   if (!currentQuote)    { toast('No pricing quote available', 'error'); return null; }
-
   try {
     const amount = currentQuote.external_amount;
     let value, chain;
-
     if (method === 'eth') {
       value = '0x' + BigInt(Math.round(amount * 1e18)).toString(16);
       chain = wallet.chain;
-    } else { // bnb
+    } else {
       value = '0x' + BigInt(Math.round(amount * 1e18)).toString(16);
       chain = 'bsc';
       if (wallet.chain !== 'bsc') {
@@ -779,7 +875,6 @@ async function processEVMPayment(method, form) {
         catch { toast('Please switch to BNB Chain in MetaMask', 'error'); return null; }
       }
     }
-
     toast('Confirm transaction in MetaMask...', 'success');
     const txHash = await wallet.provider.request({
       method: 'eth_sendTransaction',
@@ -800,27 +895,23 @@ async function processEVMPayment(method, form) {
 async function processUsdtPayment(form) {
   if (!wallet.provider) { toast('MetaMask not connected', 'error'); return null; }
   if (!currentQuote)    { toast('No pricing quote available', 'error'); return null; }
-
   try {
     const usdtAmount  = currentQuote.external_amount;
     const usdtChain   = form.usdt_chain?.value || 'ethereum';
     const usdtContract = USDT_CONTRACTS[usdtChain];
     if (!usdtContract) { toast('USDT not available on this chain', 'error'); return null; }
-
     const chainIds     = { ethereum: '0x1', arbitrum: '0xa4b1', bsc: '0x38' };
     const currentChainId = await wallet.provider.request({ method: 'eth_chainId' });
     if (currentChainId !== chainIds[usdtChain]) {
       try { await wallet.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIds[usdtChain] }] }); }
       catch { toast(`Please switch to ${usdtChain} in MetaMask`, 'error'); return null; }
     }
-
     toast('Confirm USDT transfer in MetaMask...', 'success');
     const decimals  = usdtChain === 'bsc' ? 18 : 6;
     const amountRaw = BigInt(Math.floor(usdtAmount * (10 ** decimals)));
     const amountHex = '0x' + amountRaw.toString(16).padStart(64, '0');
     const toPadded  = (TREASURY[usdtChain] || TREASURY.ethereum).toLowerCase().replace('0x', '').padStart(64, '0');
     const data      = ERC20_TRANSFER_ABI + toPadded + amountHex;
-
     const txHash = await wallet.provider.request({
       method: 'eth_sendTransaction',
       params: [{ from: wallet.address, to: usdtContract, data, value: '0x0' }],
