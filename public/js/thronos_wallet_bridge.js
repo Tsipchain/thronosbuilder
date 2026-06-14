@@ -58,7 +58,7 @@
     }
   }
 
-  // ─── AES-GCM / PBKDF2 decrypt — same algorithm as wallet_session.js ────────
+  // ─── AES-GCM / PBKDF2 decrypt — matches wallet_session.js aesKeyFromPin exactly ───
 
   function _hexToBytes(hex) {
     const bytes = new Uint8Array(hex.length / 2);
@@ -75,7 +75,7 @@
       'raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveKey']
     );
     return crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+      { name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' },
       keyMaterial,
       { name: 'AES-GCM', length: 256 },
       false, ['encrypt', 'decrypt']
