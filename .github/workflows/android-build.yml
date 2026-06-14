@@ -344,7 +344,7 @@ jobs:
       # ────────── Native Gradle ──────────
 
       - name: Build Unity Android
-        if: steps.detect.outputs.type == "unity"
+        if: steps.detect.outputs.type == 'unity'
         uses: game-ci/unity-builder@v4
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
