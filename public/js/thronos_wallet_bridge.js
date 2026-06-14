@@ -125,10 +125,14 @@
 
     /**
      * Connect using a Thronos wallet recovery JSON file + PIN.
-     * Accepts:
-     *   - Full wallet backup: { wallet_v1_encrypted_priv: "...", wallet_v1_address: "..." }
-     *   - Raw encrypted blob: { v:1, salt:"hex", iv:"hex", ct:"hex" }
-     *   - JSON string of either of the above
+     *
+     * Supports the official recovery kit format from walletV1GenerateRecoveryKit():
+     *   { version: 'wallet-v1-recovery-kit', canonical_v1_address, encrypted_private_key_backup, ... }
+     *
+     * Also supports legacy formats:
+     *   { wallet_v1_encrypted_priv: ... }
+     *   { wallet_v1_encrypted_private_key: ... }
+     *   Raw blob: { v:1, salt, iv, ct }
      */
     async connectWithRecoveryJson(jsonData, pin) {
       try {
@@ -136,10 +140,20 @@
 
         let parsed = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
 
+        // Detect recovery kit format — check all known key names
         let encryptedBlob = null;
-        if (parsed.wallet_v1_encrypted_priv) {
+        if (parsed.encrypted_private_key_backup) {
+          // Official format from walletV1GenerateRecoveryKit():
+          // { version, canonical_v1_address, encrypted_private_key_backup, ... }
+          encryptedBlob = parsed.encrypted_private_key_backup;
+        } else if (parsed.wallet_v1_encrypted_priv) {
+          // Legacy localStorage export
           encryptedBlob = parsed.wallet_v1_encrypted_priv;
+        } else if (parsed.wallet_v1_encrypted_private_key) {
+          // Normalized key variant
+          encryptedBlob = parsed.wallet_v1_encrypted_private_key;
         } else if (parsed.v === 1 && parsed.salt && parsed.iv && parsed.ct) {
+          // Raw encrypted blob
           encryptedBlob = parsed;
         } else {
           return { ok: false, reason: 'unrecognized_recovery_format' };
