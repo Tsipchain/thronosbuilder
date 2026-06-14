@@ -241,36 +241,16 @@ jobs:
         run: |
           PERMS="node_modules/expo-modules-core/android/src/main/java/expo/modules/adapters/react/permissions/PermissionsService.kt"
           if [ ! -f "$PERMS" ]; then echo "PermissionsService.kt not found, skip"; exit 0; fi
-          EMC_VER=$(node -e "try{console.log(require('./node_modules/expo-modules-core/package.json').version)}catch(e){console.log('?')}")
+          EMC_VER=$(node -e "try{console.log(require('./node_modules/expo-modules-core/package.json').version)}catch(e){console.log('?')}" 2>/dev/null || echo "?")
           echo "expo-modules-core $EMC_VER — patching PermissionsService.kt:166"
           echo "=== line 166 before patch ==="
           awk 'NR==166{printf "%3d: %s\n",NR,$0}' "$PERMS"
-          # Use !!. (non-null assertion) so the return type stays Boolean, not Boolean?
-          # Handles: fresh file (.  at col 36), or already patched (?. from prev run)
-          python3 - "$PERMS" << 'PYEOF'
-import re, sys
-fpath = sys.argv[1]
-with open(fpath) as f:
-    lines = f.readlines()
-line = lines[165]
-print(f"Before: {repr(line)}")
-# Replace any existing "?." on this line with "!!." (prev run may have added ?.)
-fixed = re.sub(r'\?\.', '!!.', line)
-# If unchanged, insert "!!." at the dot at column 36 (1-indexed = index 35)
-if fixed == line and len(line) > 35 and line[35] == '.':
-    fixed = line[:35] + '!!.' + line[36:]
-# Fallback: pattern-match known nullable variable names
-if fixed == line:
-    for pat in [r'\bpermissions\.', r'\bgrantResults\.']:
-        new = re.sub(pat, lambda m: m.group(0)[:-1] + '!!.', line, count=1)
-        if new != line:
-            fixed = new
-            break
-print(f"After:  {repr(fixed)}")
-lines[165] = fixed
-with open(fpath, 'w') as f:
-    f.writelines(lines)
-PYEOF
+          # Replace ?. → !!. (handles already-nullable JDK inference, idempotent)
+          sed -i '166s/?\./!!./g' "$PERMS"
+          # Replace permissions. / grantResults. → !!. variant (fresh file)
+          sed -i '166s/permissions\./permissions!!\./g; 166s/grantResults\./grantResults!!\./g' "$PERMS"
+          # Fallback: insert !!. at column 36 if there is a plain dot and no !! yet
+          awk 'NR==166 && substr($0,36,1)=="." && index($0,"!!")==0 {$0=substr($0,1,35) "!!." substr($0,37)} {print}' "$PERMS" > /tmp/_perm.kt && mv /tmp/_perm.kt "$PERMS"
           echo "=== line 166 after patch ==="
           awk 'NR==166{printf "%3d: %s\n",NR,$0}' "$PERMS"
 
