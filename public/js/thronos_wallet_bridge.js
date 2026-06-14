@@ -26,15 +26,13 @@
     method: null,        // 'session' | 'secret' | 'key'
   };
 
-  // ─── Internal helpers ───────────────────────────────────────────────
+  // ─── Internal helpers ───────────────────────────────────────────────────
 
   function _sessionWallet() {
-    // Checks if the v3.6 wallet_session.js and wallet_sdk.js are loaded
     if (window.walletSession && typeof window.walletSession.getAddress === 'function') {
       const addr = window.walletSession.getAddress();
       if (addr && THR_ADDR_RE.test(addr)) return { addr };
     }
-    // Also check getActiveAddress (some versions)
     if (window.walletSession && typeof window.walletSession.getActiveAddress === 'function') {
       const addr = window.walletSession.getActiveAddress();
       if (addr && THR_ADDR_RE.test(addr)) return { addr };
@@ -42,15 +40,10 @@
     return null;
   }
 
-  // Derive THR address from hex private key using secp256k1 + keccak256
-  // We use the same derivation as the Thronos chain: THR + keccak256(pubkey)[12:]
   async function _deriveAddress(hexKey) {
     try {
       const clean = hexKey.replace(/^0x/, '');
       if (clean.length !== 64) throw new Error('invalid_key_length');
-      // Use SubtleCrypto to import the key and derive a public key
-      // Thronos uses secp256k1 which SubtleCrypto doesn't support natively.
-      // We use a lightweight approach: call the node's /api/wallet/derive endpoint.
       const resp = await fetch(`${THRONOS_API_WRITE}/api/wallet/derive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -65,14 +58,46 @@
     }
   }
 
-  // ─── Public API ─────────────────────────────────────────────────────
+  // ─── AES-GCM / PBKDF2 decrypt — same algorithm as wallet_session.js ────────
+
+  function _hexToBytes(hex) {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+    return bytes;
+  }
+
+  function _bytesToHex(bytes) {
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  async function _aesKeyFromPin(pin, salt) {
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveKey']
+    );
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false, ['encrypt', 'decrypt']
+    );
+  }
+
+  async function _decryptPrivateKey(encryptedBlob, pin) {
+    const p = typeof encryptedBlob === 'string' ? JSON.parse(encryptedBlob) : encryptedBlob;
+    if (!p.salt || !p.iv || !p.ct) throw new Error('invalid_encrypted_blob');
+    const key = await _aesKeyFromPin(pin, _hexToBytes(p.salt));
+    const clear = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: _hexToBytes(p.iv) },
+      key,
+      _hexToBytes(p.ct)
+    );
+    return _bytesToHex(new Uint8Array(clear));
+  }
+
+  // ─── Public API ─────────────────────────────────────────────────────────────
 
   const ThronosBuilderWallet = {
 
-    /**
-     * Try to auto-connect from existing walletSession.
-     * Returns { ok, address } or { ok: false, reason }
-     */
     autoConnect() {
       const sess = _sessionWallet();
       if (!sess) return { ok: false, reason: 'no_session' };
@@ -80,9 +105,6 @@
       return { ok: true, address: sess.addr };
     },
 
-    /**
-     * Connect with address + send secret (manual path, legacy).
-     */
     connectWithSecret(address, secret) {
       if (!THR_ADDR_RE.test(address)) return { ok: false, reason: 'invalid_address' };
       if (!secret || secret.length < 8) return { ok: false, reason: 'invalid_secret' };
@@ -90,11 +112,6 @@
       return { ok: true, address };
     },
 
-    /**
-     * Connect by importing a hex private key.
-     * Derives the THR address from the key via the Thronos node.
-     * Returns Promise<{ ok, address }> or Promise<{ ok: false, reason }>
-     */
     async connectWithPrivateKey(hexKey) {
       try {
         const address = await _deriveAddress(hexKey);
@@ -106,33 +123,57 @@
       }
     },
 
-    /** Returns connected address or null */
+    /**
+     * Connect using a Thronos wallet recovery JSON file + PIN.
+     * Accepts:
+     *   - Full wallet backup: { wallet_v1_encrypted_priv: "...", wallet_v1_address: "..." }
+     *   - Raw encrypted blob: { v:1, salt:"hex", iv:"hex", ct:"hex" }
+     *   - JSON string of either of the above
+     */
+    async connectWithRecoveryJson(jsonData, pin) {
+      try {
+        if (!pin || pin.length < 1) return { ok: false, reason: 'pin_required' };
+
+        let parsed = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
+
+        let encryptedBlob = null;
+        if (parsed.wallet_v1_encrypted_priv) {
+          encryptedBlob = parsed.wallet_v1_encrypted_priv;
+        } else if (parsed.v === 1 && parsed.salt && parsed.iv && parsed.ct) {
+          encryptedBlob = parsed;
+        } else {
+          return { ok: false, reason: 'unrecognized_recovery_format' };
+        }
+
+        const privHex = await _decryptPrivateKey(encryptedBlob, pin);
+        if (!privHex || privHex.length !== 64) return { ok: false, reason: 'decrypt_failed_check_pin' };
+
+        return await this.connectWithPrivateKey(privHex);
+      } catch (e) {
+        const msg = e.message || '';
+        if (msg.includes('OperationError') || msg.includes('decrypt') || msg.includes('operation')) {
+          return { ok: false, reason: 'wrong_pin' };
+        }
+        return { ok: false, reason: e.message || 'recovery_failed' };
+      }
+    },
+
     getAddress() {
       if (_state.method === 'session') {
-        // Re-check live session in case wallet was locked
         const sess = _sessionWallet();
         return sess ? sess.addr : null;
       }
       return _state.address;
     },
 
-    /** Returns true if wallet is connected and usable */
     isConnected() {
       return !!this.getAddress();
     },
 
-    /**
-     * Pay build fee in THR. Returns { ok, tx_id } or { ok: false, error }.
-     *
-     * - 'session' method: uses window.ThronosWallet.send() (client-side)
-     * - 'secret'  method: returns auth_secret for backend to use
-     * - 'key'     method: posts to /api/wallet/send with the key (client-side)
-     */
     async pay({ to, amount, speed = 'fast' }) {
       const address = this.getAddress();
       if (!address) return { ok: false, error: 'not_connected' };
 
-      // ── A: walletSession is loaded → client-side send via ThronosWallet SDK ──
       if (_state.method === 'session' && window.ThronosWallet) {
         try {
           const result = await window.ThronosWallet.send({ token: 'THR', to, amount, speed });
@@ -144,7 +185,6 @@
         }
       }
 
-      // ── B: private key → client-side send via node API ──
       if (_state.method === 'key' && _state.privateKey) {
         try {
           const resp = await fetch(`${THRONOS_API_WRITE}/api/wallet/send`, {
@@ -168,7 +208,6 @@
         }
       }
 
-      // ── C: address+secret → return secret for backend-side payment ──
       if (_state.method === 'secret' && _state.secret) {
         return { ok: true, auth_secret: _state.secret, method: 'secret' };
       }
@@ -180,7 +219,6 @@
       _state = { address: null, secret: null, privateKey: null, method: null };
     },
 
-    /** Return session storage key for legacy compat */
     storeSession(address, secret) {
       try {
         sessionStorage.setItem('thr_auth', btoa(JSON.stringify({ a: address, s: secret, t: Date.now() })));
