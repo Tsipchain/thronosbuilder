@@ -7,6 +7,12 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
   <link rel="stylesheet" href="/css/style.css">
+  <!--
+    Thronos Wallet SDK — loaded from thronos-v3.6 static CDN.
+    Provides window.ThronosWallet when window.walletSession is present.
+    crossorigin="anonymous" is required for SubtleCrypto CORS compliance.
+  -->
+  <script src="https://thronoschain.org/static/wallet_sdk.js" crossorigin="anonymous" defer></script>
 </head>
 <body>
 
@@ -119,13 +125,21 @@
         <div class="stat-card" style="margin-bottom:16px">
           <h3 style="margin-bottom:12px">Getting Started</h3>
           <ol style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
-            <li>Connect your wallet</li>
+            <li>Connect your Thronos Wallet (auto-detect, import signing key, or address + secret)</li>
             <li>Click "New Build" and choose your source type (GitHub, GitLab, or ZIP Upload)</li>
             <li>Select platform (Android/iOS/Both) and build type</li>
             <li>Confirm payment in THR tokens</li>
             <li>Watch your build in real-time via WebSocket logs</li>
             <li>Download your APK/IPA when the build completes</li>
           </ol>
+        </div>
+        <div class="stat-card" style="margin-bottom:16px">
+          <h3 style="margin-bottom:12px">Connecting Your Thronos Wallet</h3>
+          <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
+            <li><strong>Auto-detect</strong> — If you have the Thronos wallet open on this device, it connects automatically.</li>
+            <li><strong>Import Signing Key</strong> — Enter your hex private key. Payment is signed client-side; the key never leaves your device.</li>
+            <li><strong>Address + Secret</strong> — Enter your THR address and send secret (legacy method).</li>
+          </ul>
         </div>
         <div class="stat-card" style="margin-bottom:16px">
           <h3 style="margin-bottom:12px">GitHub &amp; GitLab Builds</h3>
@@ -154,17 +168,6 @@
             <li><strong>Capacitor</strong> — Ionic/Capacitor hybrid apps</li>
             <li><strong>Gradle (Native Android)</strong> — Any standard Gradle-based Android project</li>
             <li><strong>Unity</strong> — Unity Android APK/AAB export (Android build target required)</li>
-          </ul>
-          <p style="color:var(--text-secondary); font-size:13px; margin-top:8px; padding:8px 12px; background:var(--bg-primary); border-radius:6px; border-left:3px solid var(--blue);">
-            <strong>iOS note:</strong> iOS (IPA) builds require a valid Apple Distribution certificate and provisioning profile. Ad-hoc and App Store distribution are both supported when iOS builds are enabled.
-          </p>
-        </div>
-        <div class="stat-card" style="margin-bottom:16px">
-          <h3 style="margin-bottom:12px">Artifact Retention</h3>
-          <ul style="padding-left:18px; color:var(--text-secondary); font-size:14px; line-height:2">
-            <li>Build artifacts (APK, AAB, IPA) are kept for <strong>7 days</strong> after a successful build.</li>
-            <li>Source ZIPs are <strong>deleted immediately</strong> after build completion.</li>
-            <li>Download your artifacts from the build detail page before they expire.</li>
           </ul>
         </div>
         <div class="stat-card">
@@ -334,7 +337,10 @@
       <div class="wallet-options">
         <button class="wallet-option" onclick="connectThronosWallet()">
           <div class="wo-icon" style="background:linear-gradient(135deg,var(--accent),#a78bfa)">T</div>
-          <div class="wo-info"><span class="wo-name">Thronos Wallet</span><span class="wo-desc">Native THR &mdash; lowest fees</span></div>
+          <div class="wo-info">
+            <span class="wo-name">Thronos Wallet</span>
+            <span class="wo-desc">Native THR &mdash; auto-detect, import key, or address+secret</span>
+          </div>
           <span class="wo-arrow">&rarr;</span>
         </button>
         <button class="wallet-option" onclick="connectMetaMask()">
@@ -364,6 +370,9 @@
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Thronos Wallet Bridge (must load before app.js) -->
+  <script src="/js/thronos_wallet_bridge.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>
