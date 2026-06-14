@@ -40,106 +40,47 @@ function getSafePricing(rawPricing) {
 
 // Chain configs
 const CHAINS = {
-  thronos:  { name: 'ThronosChain', symbol: 'THR',  color: 'var(--accent)' },
-  ethereum: { name: 'Ethereum',     symbol: 'ETH',  chainId: '0x1',    color: '#627eea' },
-  arbitrum: { name: 'Arbitrum',     symbol: 'ETH',  chainId: '0xa4b1', color: '#28a0f0' },
-  bsc:      { name: 'BNB Chain',    symbol: 'BNB',  chainId: '0x38',   color: '#F3BA2F' },
-  base:     { name: 'Base',         symbol: 'ETH',  chainId: '0x2105', color: '#0052FF' },
-  solana:   { name: 'Solana',       symbol: 'USDC', color: '#9945FF'  },
+  thronos:  { name: 'ThronosChain', symbol: 'THR',  color: '#7c3aed' },
+  ethereum: { name: 'Ethereum',     symbol: 'ETH',  color: '#627eea' },
+  solana:   { name: 'Solana',       symbol: 'SOL',  color: '#9945FF' },
+  bsc:      { name: 'BSC',          symbol: 'BNB',  color: '#F3BA2F' },
 };
 
-const TREASURY = {
-  ethereum: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD1e',
-  arbitrum: '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD1e',
-  bsc:      '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD1e',
-  base:     '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD1e',
-  solana:   'THRtreas1111111111111111111111111111111111',
-};
+// ─── Utilities ────────────────────────────────────────────────────────
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast toast-${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.classList.add('show'), 10);
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 4000);
+}
 
-const USDC_CONTRACTS = {
-  ethereum: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-  arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-  solana:   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-};
-
-const USDT_CONTRACTS = {
-  ethereum: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-  arbitrum: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
-  bsc:      '0x55d398326f99059fF775485246999027B3197955',
-};
-
-const ERC20_TRANSFER_ABI = '0xa9059cbb';
-
-// ─── Page Navigation ──────────────────────────────────────────────────
-document.querySelectorAll('.navbar-links a').forEach(link => {
-  link.addEventListener('click', e => { e.preventDefault(); showPage(link.dataset.page); });
-});
-
-function showPage(page) {
+function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.navbar-links a').forEach(a => a.classList.remove('active'));
-  const el = document.getElementById('page-' + page);
-  if (el) { el.classList.add('active'); el.style.display = 'block'; }
-  const link = document.querySelector(`[data-page="${page}"]`);
-  if (link) link.classList.add('active');
-  document.querySelectorAll('.page').forEach(p => { if (p.id !== 'page-' + page) p.style.display = 'none'; });
-  if (page === 'dashboard') loadDashboard();
-  if (page === 'pricing')   loadPricing();
-}
-
-document.querySelectorAll('.page').forEach(p => { if (!p.classList.contains('active')) p.style.display = 'none'; });
-
-async function loadPublicConfig() {
-  try {
-    const res = await fetch(`${API}/public/config`);
-    if (!res.ok) return;
-    publicConfig = await res.json();
-  } catch (_) {}
-}
-loadPublicConfig();
-
-// ─── Wallet Connect Modal ──────────────────────────────────────────────
-document.getElementById('connectWallet').addEventListener('click', () => {
-  if (wallet.address) { disconnectWallet(); return; }
-  document.getElementById('walletModal').classList.add('active');
-});
-
-function closeWalletModal() { document.getElementById('walletModal').classList.remove('active'); }
-
-function disconnectWallet() {
-  wallet = { address: null, type: null, chain: null, provider: null };
-  sessionStorage.removeItem('thr_auth');
-  if (window.ThronosBuilderWallet) window.ThronosBuilderWallet.disconnect();
-  const btn = document.getElementById('connectWallet');
-  btn.textContent = 'Connect Wallet';
-  btn.classList.remove('connected');
-  document.getElementById('chainBadge').style.display = 'none';
-  toast('Wallet disconnected');
+  document.querySelectorAll('.navbar-links a').forEach(a => {
+    a.classList.toggle('active', a.dataset.page === name);
+  });
+  const page = document.getElementById(`page-${name}`);
+  if (page) page.classList.add('active');
 }
 
 function setWalletConnected(address, type, chain) {
-  wallet.address = address; wallet.type = type; wallet.chain = chain;
-  const short = address.slice(0, 6) + '...' + address.slice(-4);
+  wallet = { address, type, chain };
   const btn = document.getElementById('connectWallet');
+  const badge = document.getElementById('chainBadge');
+  const short = address.length > 12 ? address.slice(0, 8) + '...' + address.slice(-4) : address;
   btn.textContent = short;
   btn.classList.add('connected');
-  const badge = document.getElementById('chainBadge');
-  badge.textContent = CHAINS[chain]?.name || chain;
-  badge.className = 'chain-badge ' + chain;
-  badge.style.display = 'inline';
+  if (badge) {
+    badge.textContent = chain || type;
+    badge.style.display = 'inline-flex';
+  }
   closeWalletModal();
-  toast(`Connected via ${type} on ${CHAINS[chain]?.name}`, 'success');
-  loadDashboard();
-}
-
-// Legacy session storage helpers (kept for compat)
-function storeThrAuth(address, secret) {
-  if (window.ThronosBuilderWallet) window.ThronosBuilderWallet.storeSession(address, secret);
-  else sessionStorage.setItem('thr_auth', btoa(JSON.stringify({ a: address, s: secret, t: Date.now() })));
 }
 
 function getThrAuth() {
-  if (window.ThronosBuilderWallet) return window.ThronosBuilderWallet.getStoredSession();
   try {
     const raw = sessionStorage.getItem('thr_auth');
     if (!raw) return null;
@@ -149,547 +90,454 @@ function getThrAuth() {
   } catch { return null; }
 }
 
-// ─── Thronos Wallet (v2 integration) ─────────────────────────────────
-async function connectThronosWallet() {
-  const bridge = window.ThronosBuilderWallet;
-
-  // 1. Try auto-connect from existing walletSession (thronos-v3.6 wallet already loaded)
-  if (bridge) {
-    const auto = bridge.autoConnect();
-    if (auto.ok) {
-      setWalletConnected(auto.address, 'thronos', 'thronos');
-      wallet.provider = bridge;
-      toast('Connected from Thronos Wallet session', 'success');
-      return;
-    }
-
-    // 2. Try restoring from sessionStorage
-    const stored = bridge.getStoredSession();
-    if (stored && /^THR[a-fA-F0-9]{40}$/.test(stored.address)) {
-      bridge.connectWithSecret(stored.address, stored.secret);
-      setWalletConnected(stored.address, 'thronos', 'thronos');
-      wallet.provider = bridge;
-      toast('Reconnected from session', 'success');
-      return;
-    }
-  } else {
-    // Legacy: no bridge, try session
-    const cached = getThrAuth();
-    if (cached && /^THR[a-fA-F0-9]{40}$/.test(cached.address)) {
-      setWalletConnected(cached.address, 'thronos', 'thronos');
-      return;
-    }
-  }
-
-  // 3. Show connect modal (import key or address+secret)
-  showThronosConnectModal();
+// ─── API helpers ──────────────────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(`${API}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
 }
 
-function showThronosConnectModal() {
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay active';
-  overlay.id = 'thronosConnectOverlay';
-  overlay.innerHTML = `
-    <div class="modal" style="max-width:460px">
-      <h2 style="margin-bottom:4px">Connect Thronos Wallet</h2>
-      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">Choose how to connect your THR wallet to pay for builds.</p>
-
-      <!-- Tab selector -->
-      <div style="display:flex;gap:8px;margin-bottom:16px">
-        <button id="tabSecretBtn" onclick="switchThrTab('secret')" class="btn btn-primary" style="flex:1;font-size:12px">Address + Secret</button>
-        <button id="tabKeyBtn" onclick="switchThrTab('key')" class="btn btn-secondary" style="flex:1;font-size:12px">Import Signing Key</button>
-      </div>
-
-      <!-- Tab: Address + Secret -->
-      <div id="tabSecret">
-        <div style="margin-bottom:12px">
-          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">THR Address</label>
-          <input type="text" id="thrAddrInput" placeholder="THRa60e1cef..." style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
-        </div>
-        <div style="margin-bottom:16px">
-          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Send Secret</label>
-          <input type="password" id="thrSecretInput" placeholder="Your auth secret from pledge" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
-          <span style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:block">Required for payments. Used only in this session.</span>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button onclick="document.getElementById('thronosConnectOverlay').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
-          <button onclick="submitThronosConnect()" class="btn btn-primary" style="flex:1" id="thrConnectBtn">Connect</button>
-        </div>
-      </div>
-
-      <!-- Tab: Import Signing Key -->
-      <div id="tabKey" style="display:none">
-        <div style="margin-bottom:16px">
-          <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Private Key (hex)</label>
-          <input type="password" id="thrKeyInput" placeholder="64-character hex key (with or without 0x)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-family:monospace;font-size:13px" />
-          <span style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:block">Your signing key is never sent to any server. Payment is signed client-side.</span>
-        </div>
-        <div id="thrKeyError" style="display:none;color:var(--red);font-size:12px;margin-bottom:10px"></div>
-        <div style="display:flex;gap:8px">
-          <button onclick="document.getElementById('thronosConnectOverlay').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
-          <button onclick="submitThronosKeyImport()" class="btn btn-primary" style="flex:1" id="thrKeyConnectBtn">Import &amp; Connect</button>
-        </div>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-  document.getElementById('thrAddrInput')?.focus();
-}
-
-function switchThrTab(tab) {
-  document.getElementById('tabSecret').style.display = tab === 'secret' ? 'block' : 'none';
-  document.getElementById('tabKey').style.display    = tab === 'key'    ? 'block' : 'none';
-  document.getElementById('tabSecretBtn').className  = tab === 'secret' ? 'btn btn-primary' : 'btn btn-secondary';
-  document.getElementById('tabKeyBtn').className     = tab === 'key'    ? 'btn btn-primary' : 'btn btn-secondary';
-  if (tab === 'secret') document.getElementById('tabSecretBtn').style.flex = '1';
-}
-switchThrTab.toString; // expose to inline onclick
-
-async function submitThronosConnect() {
-  const addr   = document.getElementById('thrAddrInput').value.trim();
-  const secret = document.getElementById('thrSecretInput').value.trim();
-  const btn    = document.getElementById('thrConnectBtn');
-  if (!addr)   { toast('THR address required', 'error'); return; }
-  if (!/^THR[a-fA-F0-9]{40}$/.test(addr)) { toast('Invalid THR address. Format: THR + 40 hex chars', 'error'); return; }
-  if (!secret) { toast('Send secret required for payments', 'error'); return; }
-  btn.disabled = true; btn.textContent = 'Verifying...';
+async function preflightCheck(address, platform, buildType, paymentMethod) {
   try {
-    const res  = await fetch(`${API}/builds/preflight`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wallet_address: addr }) });
-    const data = await res.json();
-    if (data.error && data.error.includes('Invalid')) {
-      toast('Address not found on Thronos chain', 'error');
-      btn.disabled = false; btn.textContent = 'Connect'; return;
-    }
-    if (window.ThronosBuilderWallet) {
-      window.ThronosBuilderWallet.connectWithSecret(addr, secret);
-      window.ThronosBuilderWallet.storeSession(addr, secret);
-    } else {
-      storeThrAuth(addr, secret);
-    }
-    setWalletConnected(addr, 'thronos', 'thronos');
-    wallet.provider = window.ThronosBuilderWallet || 'manual';
-    document.getElementById('thronosConnectOverlay').remove();
-    if (data.balance !== null) toast(`Connected! Balance: ${data.balance} THR`, 'success');
-  } catch (err) {
-    toast('Connection error: ' + err.message, 'error');
-    btn.disabled = false; btn.textContent = 'Connect';
-  }
-}
-
-async function submitThronosKeyImport() {
-  const keyInput = document.getElementById('thrKeyInput');
-  const errEl    = document.getElementById('thrKeyError');
-  const btn      = document.getElementById('thrKeyConnectBtn');
-  const hexKey   = keyInput.value.trim();
-  if (!hexKey) { errEl.textContent = 'Private key required'; errEl.style.display = 'block'; return; }
-  if (!window.ThronosBuilderWallet) { errEl.textContent = 'Wallet bridge not loaded'; errEl.style.display = 'block'; return; }
-  btn.disabled = true; btn.textContent = 'Importing...';
-  errEl.style.display = 'none';
-  try {
-    const result = await window.ThronosBuilderWallet.connectWithPrivateKey(hexKey);
-    if (!result.ok) { errEl.textContent = 'Error: ' + result.reason; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Import & Connect'; return; }
-    setWalletConnected(result.address, 'thronos', 'thronos');
-    wallet.provider = window.ThronosBuilderWallet;
-    document.getElementById('thronosConnectOverlay').remove();
-    toast(`Signing key imported! Address: ${result.address.slice(0,10)}...`, 'success');
-  } catch (err) {
-    errEl.textContent = 'Error: ' + err.message; errEl.style.display = 'block';
-    btn.disabled = false; btn.textContent = 'Import & Connect';
-  }
-}
-
-// ─── MetaMask ─────────────────────────────────────────────────────────
-async function connectMetaMask() {
-  if (typeof window.ethereum === 'undefined') { toast('MetaMask not detected.', 'error'); return; }
-  try {
-    const accounts  = await window.ethereum.request({ method: 'eth_requestAccounts' });
-    const chainHex  = await window.ethereum.request({ method: 'eth_chainId' });
-    wallet.provider = window.ethereum;
-    setWalletConnected(accounts[0], 'metamask', detectEVMChain(chainHex));
-    window.ethereum.on('chainChanged', hex => {
-      wallet.chain = detectEVMChain(hex);
-      const badge = document.getElementById('chainBadge');
-      badge.textContent = CHAINS[wallet.chain]?.name || wallet.chain;
-      badge.className = 'chain-badge ' + wallet.chain;
-      toast(`Switched to ${CHAINS[wallet.chain]?.name}`, 'success');
+    const res = await fetch(`${API}/builds/preflight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wallet_address: address, platform, build_type: buildType, payment_method: paymentMethod }),
     });
-    window.ethereum.on('accountsChanged', accs => {
-      if (!accs.length) disconnectWallet();
-      else { wallet.address = accs[0]; document.getElementById('connectWallet').textContent = accs[0].slice(0,6)+'...'+accs[0].slice(-4); }
-    });
-  } catch { toast('MetaMask connection rejected', 'error'); }
+    return await res.json();
+  } catch { return { error: 'Network error during preflight check' }; }
 }
 
-function detectEVMChain(hex) {
-  return { '0x1': 'ethereum', '0xa4b1': 'arbitrum', '0x38': 'bsc', '0x2105': 'base' }[hex] || 'ethereum';
-}
-
-// ─── Phantom ───────────────────────────────────────────────────────────
-async function connectPhantom() {
-  const phantom = window.solana || window.phantom?.solana;
-  if (!phantom || !phantom.isPhantom) { toast('Phantom wallet not detected.', 'error'); return; }
+// ─── Pricing ──────────────────────────────────────────────────────────
+async function loadPricing() {
   try {
-    const resp = await phantom.connect();
-    wallet.provider = phantom;
-    setWalletConnected(resp.publicKey.toString(), 'phantom', 'solana');
-  } catch { toast('Phantom connection rejected', 'error'); }
+    const { ok, data } = await apiFetch('/status/pricing');
+    if (ok && data) { pricingData = data; renderPricingPage(); }
+  } catch (_) {}
 }
 
-// ─── Manual wallet ────────────────────────────────────────────────────
-function connectManualWallet() {
-  const input = document.getElementById('manualWalletInput').value.trim();
-  if (!input) { toast('Please enter a wallet address', 'error'); return; }
-  if      (/^THR[a-fA-F0-9]{40}$/.test(input))       setWalletConnected(input, 'thronos', 'thronos');
-  else if (/^0x[a-fA-F0-9]{40}$/.test(input))         setWalletConnected(input, 'metamask', 'ethereum');
-  else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(input)) setWalletConnected(input, 'phantom', 'solana');
-  else toast('Unrecognized address format', 'error');
+function calcCost(platform, buildType) {
+  const p = getSafePricing(pricingData);
+  const bt = normalizeBuildType(buildType);
+  if (platform === 'both') return (p.android[bt] || p.android.apk) + p.ios.ipa - p.bundle_discount;
+  if (platform === 'ios')  return p.ios.ipa;
+  return p.android[bt] || p.android.apk;
 }
 
-// ─── Payment Method Selection ──────────────────────────────────────────
-document.addEventListener('click', e => {
-  const opt = e.target.closest('.payment-option');
-  if (!opt) return;
-  const usdtChainSelect = document.getElementById('usdtChainSelect');
-  if (usdtChainSelect && usdtChainSelect.contains(opt)) {
-    usdtChainSelect.querySelectorAll('.payment-option').forEach(o => o.classList.remove('selected'));
-    opt.classList.add('selected'); opt.querySelector('input').checked = true;
-    updateCost(); return;
-  }
-  const container = document.getElementById('paymentMethods');
-  if (!container || !container.contains(opt)) return;
-  container.querySelectorAll('.payment-option').forEach(o => o.classList.remove('selected'));
-  opt.classList.add('selected'); opt.querySelector('input').checked = true;
-  if (usdtChainSelect) usdtChainSelect.style.display = opt.dataset.method === 'usdt_evm' ? 'block' : 'none';
-  updateCost();
-});
-
-// ─── Dashboard ─────────────────────────────────────────────────────────
-async function loadDashboard() { loadStats(); loadBuilds(); }
-
-async function loadStats() {
-  try {
-    const res  = await fetch(`${API}/status/stats`);
-    const data = await res.json();
-    document.getElementById('statTotal').textContent   = data.total_builds || 0;
-    document.getElementById('statSuccess').textContent = data.status_breakdown?.success || 0;
-    document.getElementById('statBuilding').textContent =
-      (data.status_breakdown?.building || 0) + (data.status_breakdown?.pending || 0);
-    document.getElementById('statSpent').textContent = parseFloat(data.total_revenue || 0).toFixed(2);
-  } catch (e) { console.error('Failed to load stats:', e); }
-}
-
-async function loadBuilds() {
-  if (!wallet.address) return;
-  try {
-    const res = await fetch(`${API}/builds?wallet_address=${encodeURIComponent(wallet.address)}`);
-    if (!res.ok) { showEmptyState(); return; }
-    renderBuilds((await res.json()).builds || []);
-  } catch { showEmptyState(); }
-}
-
-function showEmptyState() {
-  document.getElementById('buildsList').innerHTML = `
-    <div class="empty-state">
-      <div class="icon">&#128230;</div>
-      <p>No builds yet. Start by creating your first build.</p>
-      <button class="btn btn-primary" onclick="openNewBuild()">Create Build</button>
-    </div>`;
-}
-
-function renderBuilds(builds) {
-  const list = document.getElementById('buildsList');
-  if (!builds.length) { showEmptyState(); return; }
-  list.innerHTML = builds.map(b => `
-    <div class="build-card" onclick="openBuildDetail('${b.job_id}')">
-      <div class="build-info">
-        <h3>${escapeHtml(b.project_name)}</h3>
-        <div class="meta"><span>${b.platform}</span><span>${b.build_type}</span><span>${timeAgo(b.created_at)}</span></div>
-      </div>
-      <span class="badge badge-${b.status}">${b.status}</span>
-      <div class="progress-wrap">
-        <div class="progress-bar"><div class="fill" style="width:${b.progress||0}%"></div></div>
-        <div class="progress-text">${b.progress||0}%</div>
-      </div>
-      <div class="build-actions">
-        ${b.status==='success'?`<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();downloadArtifact('${b.job_id}','${b.platform}')">Download</button>`:''}
-        ${(b.status==='building'||b.status==='pending')?`<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();cancelBuild('${b.job_id}')">Cancel</button>`:''}
-        ${b.status==='failed'&&(b.payment_status==='paid'||b.payment_status==='internal_waived')?`<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();editAndRetryBuild('${b.job_id}')">Edit &amp; Retry</button>`:''}
-        ${b.status==='failed'&&!(b.payment_status==='paid'||b.payment_status==='internal_waived')?`<button class="btn btn-sm btn-primary" onclick="event.stopPropagation();retryBuild('${b.job_id}')">Retry</button>`:''}
-      </div>
-    </div>`).join('');
-}
-
-// ─── Build Detail ──────────────────────────────────────────────────────
-async function openBuildDetail(jobId) {
-  showPage('detail');
-  try {
-    const res = await fetch(`${API}/builds/${jobId}`);
-    const b   = await res.json();
-    document.getElementById('detailTitle').textContent  = b.project_name;
-    document.getElementById('detailBadge').className    = `badge badge-${b.status}`;
-    document.getElementById('detailBadge').textContent  = b.status;
-    document.getElementById('detailGrid').innerHTML = `
-      <div class="detail-field"><div class="label">Job ID</div><div class="value" style="font-size:12px;font-family:monospace">${b.job_id}</div></div>
-      <div class="detail-field"><div class="label">Platform</div><div class="value">${b.platform} / ${b.build_type}</div></div>
-      <div class="detail-field"><div class="label">Created</div><div class="value">${new Date(b.created_at).toLocaleString()}</div></div>
-      <div class="detail-field"><div class="label">Cost</div><div class="value">${b.cost_thron} THR</div></div>
-      <div class="detail-field"><div class="label">Progress</div><div class="value">
-        <div class="progress-bar" style="margin-top:4px"><div class="fill" style="width:${b.progress||0}%"></div></div>
-        <span style="font-size:12px;color:var(--text-secondary)">${b.progress||0}%</span></div></div>
-      <div class="detail-field"><div class="label">Payment</div><div class="value">${b.payment_status}</div></div>`;
-    const actions = document.getElementById('detailActions');
-    actions.innerHTML = '';
-    if (b.status === 'success') {
-      if (b.android_artifact_url) actions.innerHTML += `<button class="btn btn-primary" onclick="downloadArtifact('${b.job_id}','android')">Download APK</button> `;
-      if (b.ios_artifact_url)     actions.innerHTML += `<button class="btn btn-primary" onclick="downloadArtifact('${b.job_id}','ios')">Download IPA</button>`;
-    }
-    loadBuildLogs(jobId);
-    if (b.status === 'building' || b.status === 'pending') connectBuildWs(jobId);
-  } catch { toast('Failed to load build details', 'error'); showPage('dashboard'); }
-}
-
-async function loadBuildLogs(jobId) {
-  const el = document.getElementById('buildConsole');
-  try {
-    const data = await (await fetch(`${API}/builds/${jobId}/logs`)).json();
-    if (data.logs && data.logs.length) {
-      el.innerHTML = data.logs.map(l => `<div class="log-line ${l.type||''}">${escapeHtml(l.line)}</div>`).join('');
-      el.scrollTop = el.scrollHeight;
-    } else { el.innerHTML = '<div class="log-line">No logs yet...</div>'; }
-  } catch { el.innerHTML = '<div class="log-line error">Failed to load logs</div>'; }
-}
-
-function connectBuildWs(jobId) {
-  if (currentWs) { currentWs.close(); currentWs = null; }
-  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${protocol}//${location.host}/ws/builds/${jobId}`);
-  currentWs = ws;
-  document.getElementById('liveIndicator').style.display = 'inline';
-  ws.onmessage = event => {
-    try {
-      const msg = JSON.parse(event.data);
-      const el  = document.getElementById('buildConsole');
-      if (msg.event === 'log') {
-        const div = document.createElement('div');
-        div.className = `log-line ${msg.data.type||''}`; div.textContent = msg.data.line;
-        el.appendChild(div); el.scrollTop = el.scrollHeight;
-      }
-      if (msg.event === 'progress') document.querySelectorAll('.fill').forEach(f => f.style.width = msg.data.progress + '%');
-      if (msg.event === 'complete') {
-        document.getElementById('liveIndicator').style.display = 'none';
-        document.getElementById('detailBadge').className = `badge badge-${msg.data.status}`;
-        document.getElementById('detailBadge').textContent = msg.data.status;
-        toast(`Build ${msg.data.status}!`, msg.data.status === 'success' ? 'success' : 'error');
-        ws.close();
-      }
-      if (msg.event === 'error') {
-        document.getElementById('liveIndicator').style.display = 'none';
-        document.getElementById('detailBadge').className = 'badge badge-failed';
-        document.getElementById('detailBadge').textContent = 'failed';
-        const div = document.createElement('div');
-        div.className = 'log-line error'; div.textContent = `ERROR: ${msg.data.error}`;
-        el.appendChild(div); toast('Build failed!', 'error'); ws.close();
-      }
-    } catch { /* ignore */ }
-  };
-  ws.onclose = () => { document.getElementById('liveIndicator').style.display = 'none'; currentWs = null; };
-}
-
-// ─── Source Type UI Toggle ─────────────────────────────────────────────
-function updateSourceTypeUI() {
-  const form = document.getElementById('buildForm');
-  if (!form) return;
-  const isZip = form.source_type.value === 'zip';
-  document.getElementById('sourceUrlGroup').style.display  = isZip ? 'none'  : 'block';
-  document.getElementById('sourceUrlInput').toggleAttribute('required', !isZip);
-  document.getElementById('branchGroup').style.display     = isZip ? 'none'  : 'block';
-  document.getElementById('zipFileGroup').style.display    = isZip ? 'block' : 'none';
-  document.getElementById('zipMetaGroup').style.display    = isZip ? 'flex'  : 'none';
-}
-
-// ─── iOS Guard ─────────────────────────────────────────────────────────
-function applyIosGuard() {
-  const iosEnabled    = pricingData?.ios_enabled === true;
-  const platformSelect = document.getElementById('platformSelect');
-  if (!platformSelect) return;
-  const iosOpt  = platformSelect.querySelector('[value="ios"]');
-  const bothOpt = platformSelect.querySelector('[value="both"]');
-  if (iosOpt)  iosOpt.disabled  = !iosEnabled;
-  if (bothOpt) bothOpt.disabled = !iosEnabled;
-  const existing = document.getElementById('iosGuardNotice');
-  if (!iosEnabled) {
-    if (!existing) {
-      const p = document.createElement('p');
-      p.id = 'iosGuardNotice';
-      p.style.cssText = 'font-size:12px;color:var(--text-secondary);margin-top:4px;';
-      p.textContent = 'iOS builds require signing/macOS configuration. Currently unavailable.';
-      platformSelect.parentElement.appendChild(p);
-    }
-    if (platformSelect.value === 'ios' || platformSelect.value === 'both') {
-      platformSelect.value = 'android';
-    }
-  } else if (existing) {
-    existing.remove();
-  }
-}
-
-// ─── Quote / Cost Display ───────────────────────────────────────────────
 async function updateCost() {
-  const form = document.getElementById('buildForm');
-  if (!form) return;
-
-  const platform      = form.platform.value;
-  const build_type    = form.build_type.value;
-  const payment_method = form.payment_method?.value || 'thr';
-
-  const costEl      = document.getElementById('costPreview');
-  const feeInfo     = document.getElementById('feeInfo');
+  const form    = document.getElementById('buildForm');
+  const preview = document.getElementById('costPreview');
+  const feeInfo = document.getElementById('feeInfo');
   const floorNotice = document.getElementById('floorNotice');
+  if (!form || !preview) return;
 
-  costEl.textContent = 'Loading...';
-  currentQuote = null;
+  const paymentMethod = form.payment_method.value;
+  const platform      = form.platform.value;
+  const buildType     = form.build_type.value;
 
+  if (paymentMethod === 'thr' || paymentMethod === 'thronos') {
+    const cost = calcCost(platform, buildType);
+    preview.textContent = `${cost} THR`;
+    if (feeInfo) feeInfo.style.display = 'none';
+    if (floorNotice) floorNotice.style.display = 'none';
+    currentQuote = { native_cost_thr: cost };
+    return;
+  }
+
+  // Cross-chain: fetch a live quote from the backend
   try {
-    const body = { platform, build_type, payment_method };
-    if (wallet.address) body.wallet_address = wallet.address;
-
+    preview.textContent = 'Fetching price...';
+    const body = { payment_method: paymentMethod, platform, build_type: buildType };
+    if (paymentMethod === 'usdt_evm') {
+      const chain = form.usdt_chain?.value || 'ethereum';
+      body.payment_chain = chain;
+    }
     const res = await fetch(`${API}/builds/preflight`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      costEl.textContent = err.error || 'Pricing unavailable';
-      if (floorNotice) floorNotice.style.display = 'none';
-      feeInfo.style.display = 'none';
-      return;
-    }
-
     const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Pricing unavailable');
+
     currentQuote = data;
-
-    costEl.textContent = `${data.amount} ${data.currency}`;
-
-    if (floorNotice) floorNotice.style.display = data.floor_applied ? 'block' : 'none';
-
-    if (data.currency !== 'THR') {
-      feeInfo.style.display = 'block';
-      document.getElementById('feeNote').textContent = 'Cross-chain fee split: 50% treasury, 25% burn, 25% LP pools.';
-    } else {
-      feeInfo.style.display = 'none';
-    }
+    const symbol = data.payment_token || paymentMethod.toUpperCase();
+    const amount = data.external_amount || data.quoted_amount || '?';
+    const floor  = data.floor_applied || false;
+    preview.textContent = `${amount} ${symbol}`;
+    if (feeInfo) { feeInfo.style.display = 'block'; }
+    if (floorNotice) floorNotice.style.display = floor ? 'block' : 'none';
   } catch (e) {
-    costEl.textContent = 'Pricing unavailable';
+    preview.textContent = 'Price unavailable';
     currentQuote = null;
-    console.warn('updateCost error:', e);
+    if (feeInfo) feeInfo.style.display = 'none';
   }
 }
 
-// ─── New Build Modal ───────────────────────────────────────────────────
-document.getElementById('newBuildBtn').addEventListener('click', openNewBuild);
-document.getElementById('sourceTypeSelect').addEventListener('change', updateSourceTypeUI);
+function renderPricingPage() {
+  const grid = document.getElementById('pricingGrid');
+  if (!grid) return;
+  const p = getSafePricing(pricingData);
+  const plans = [
+    { name: 'Android APK', icon: '&#9650;', price: p.android.apk, features: ['Debug or Release APK','Flutter, React Native, Expo','Capacitor, Gradle, Unity','7-day artifact retention'] },
+    { name: 'Android AAB', icon: '&#9670;', price: p.android.aab, features: ['Play Store bundle','Optimized delivery','Flutter, React Native, Expo','7-day artifact retention'] },
+    { name: 'iOS IPA', icon: '&#9651;', price: p.ios.ipa, features: ['Ad-Hoc / Enterprise IPA','Requires signing config','React Native, Expo, Flutter','7-day artifact retention'] },
+    { name: 'Android + iOS', icon: '&#9632;', price: p.android.apk + p.ios.ipa - p.bundle_discount, features: [`Android APK + iOS IPA in one build`, `Save ${p.bundle_discount} THR bundle discount`, 'All frameworks', '7-day artifact retention'] },
+  ];
+  grid.innerHTML = plans.map(pl => `
+    <div class="pricing-card">
+      <div class="pc-icon">${pl.icon}</div>
+      <h3>${pl.name}</h3>
+      <div class="pc-price">${pl.price} <span class="pc-unit">THR</span></div>
+      <ul>${pl.features.map(f => `<li>${f}</li>`).join('')}</ul>
+      <button class="btn btn-primary" onclick="openNewBuild()">Build Now</button>
+    </div>
+  `).join('');
+}
 
-async function openNewBuild() {
-  if (!wallet.address) { toast('Please connect your wallet first', 'error'); return; }
-  document.getElementById('newBuildModal').classList.add('active');
+// ─── Stats ────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const { ok, data } = await apiFetch('/status/stats');
+    if (!ok) return;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? '-'; };
+    set('statTotal',   data.total_builds   ?? data.builds_total   ?? '-');
+    set('statSuccess', data.builds_success ?? data.successful     ?? '-');
+    set('statBuilding',data.builds_running ?? data.in_progress    ?? '-');
+    set('statSpent',   data.total_thr_spent ?? '-');
+  } catch (_) {}
+}
 
-  // Pre-select payment method
-  const methodMap = { thronos: 'thr', metamask: wallet.chain === 'bsc' ? 'bnb' : 'eth', phantom: 'usdc_sol' };
-  const method = methodMap[wallet.type] || 'thr';
-  const pmContainer = document.getElementById('paymentMethods');
-  pmContainer.querySelectorAll('.payment-option').forEach(o => {
-    o.classList.toggle('selected', o.dataset.method === method);
-    o.querySelector('input').checked = o.dataset.method === method;
-  });
-  const usdtChainSelect = document.getElementById('usdtChainSelect');
-  if (usdtChainSelect) usdtChainSelect.style.display = method === 'usdt_evm' ? 'block' : 'none';
+// ─── Builds List ──────────────────────────────────────────────────────
+async function loadBuilds() {
+  try {
+    const { ok, data } = await apiFetch('/builds');
+    if (!ok) return;
+    renderBuilds(Array.isArray(data) ? data : (data.builds || []));
+  } catch (_) {}
+}
 
-  if (!pricingData) {
-    try {
-      const res = await fetch(`${API}/status/pricing`);
-      if (res.ok) pricingData = await res.json();
-    } catch { /* use fallback */ }
+function renderBuilds(builds) {
+  const list  = document.getElementById('buildsList');
+  const empty = document.getElementById('emptyState');
+  if (!list) return;
+  if (!builds.length) { if (empty) empty.style.display = 'flex'; return; }
+  if (empty) empty.style.display = 'none';
+  list.innerHTML = builds.map(b => {
+    const statusClass = { completed: 'success', failed: 'error', building: 'building', queued: 'queued' }[b.status] || '';
+    const time = b.created_at ? new Date(b.created_at).toLocaleString() : '-';
+    return `
+      <div class="build-card" onclick="openBuildDetail('${b.job_id}')">
+        <div class="bc-header">
+          <span class="bc-name">${b.project_name || b.job_id}</span>
+          <span class="badge badge-${statusClass}">${b.status}</span>
+        </div>
+        <div class="bc-meta">
+          <span>${b.platform || '-'} / ${b.build_type || '-'}</span>
+          <span>${time}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ─── Build Detail ─────────────────────────────────────────────────────
+async function openBuildDetail(jobId) {
+  showPage('detail');
+  document.getElementById('detailTitle').textContent = jobId;
+  const console_ = document.getElementById('buildConsole');
+  console_.innerHTML = '<div class="log-line">Loading...</div>';
+
+  try {
+    const { ok, data } = await apiFetch(`/builds/${jobId}`);
+    if (!ok) throw new Error(data.error || 'Failed to load build');
+    document.getElementById('detailTitle').textContent = data.project_name || jobId;
+    const statusClass = { completed: 'success', failed: 'error', building: 'building', queued: 'queued' }[data.status] || '';
+    document.getElementById('detailBadge').className = `badge badge-${statusClass}`;
+    document.getElementById('detailBadge').textContent = data.status;
+    renderDetailGrid(data);
+    renderDetailActions(data);
+    streamLogs(jobId, data.status);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderDetailGrid(b) {
+  const grid = document.getElementById('detailGrid');
+  if (!grid) return;
+  const rows = [
+    ['Platform', b.platform], ['Build Type', b.build_type],
+    ['Payment', b.payment_method], ['Cost', b.cost_thr ? `${b.cost_thr} THR` : '-'],
+    ['Created', b.created_at ? new Date(b.created_at).toLocaleString() : '-'],
+    ['Completed', b.completed_at ? new Date(b.completed_at).toLocaleString() : '-'],
+  ];
+  grid.innerHTML = rows.map(([k, v]) => `<div class="detail-row"><span class="dr-key">${k}</span><span class="dr-val">${v || '-'}</span></div>`).join('');
+}
+
+function renderDetailActions(b) {
+  const el = document.getElementById('detailActions');
+  if (!el) return;
+  const btns = [];
+  if (b.status === 'completed') {
+    if (b.platform === 'android' || b.platform === 'both') btns.push(`<a class="btn btn-primary" href="${API}/builds/${b.job_id}/download/android">Download APK</a>`);
+    if (b.platform === 'ios'     || b.platform === 'both') btns.push(`<a class="btn btn-primary" href="${API}/builds/${b.job_id}/download/ios">Download IPA</a>`);
+  }
+  if (b.status === 'failed') btns.push(`<button class="btn btn-secondary" onclick="retryBuild('${b.job_id}')">Retry</button>`);
+  if (['queued','building'].includes(b.status)) btns.push(`<button class="btn btn-danger" onclick="cancelBuild('${b.job_id}')">Cancel</button>`);
+  el.innerHTML = btns.join(' ');
+}
+
+async function retryBuild(jobId) {
+  const { ok, data } = await apiFetch(`/builds/${jobId}/retry`, { method: 'POST' });
+  if (ok) { toast('Build retried', 'success'); openBuildDetail(jobId); }
+  else toast(data.error || 'Retry failed', 'error');
+}
+
+async function cancelBuild(jobId) {
+  const { ok, data } = await apiFetch(`/builds/${jobId}/cancel`, { method: 'POST' });
+  if (ok) { toast('Build cancelled', 'success'); openBuildDetail(jobId); }
+  else toast(data.error || 'Cancel failed', 'error');
+}
+
+function streamLogs(jobId, status) {
+  const console_ = document.getElementById('buildConsole');
+  const live      = document.getElementById('liveIndicator');
+  if (currentWs) { currentWs.close(); currentWs = null; }
+
+  if (['completed','failed','cancelled'].includes(status)) {
+    if (live) live.style.display = 'none';
+    apiFetch(`/builds/${jobId}/logs`).then(({ ok, data }) => {
+      if (!ok) return;
+      const logs = Array.isArray(data) ? data : (data.logs || []);
+      console_.innerHTML = logs.map(l => `<div class="log-line">${escHtml(l)}</div>`).join('') || '<div class="log-line">No logs available.</div>';
+    });
+    return;
   }
 
-  updateSourceTypeUI();
-  applyIosGuard();
+  if (live) live.style.display = 'inline-flex';
+  const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/builds/${jobId}/logs/ws`;
+  try {
+    const ws = new WebSocket(wsUrl);
+    currentWs = ws;
+    console_.innerHTML = '';
+    ws.onmessage = e => {
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      line.textContent = e.data;
+      console_.appendChild(line);
+      console_.scrollTop = console_.scrollHeight;
+    };
+    ws.onclose = () => {
+      if (live) live.style.display = 'none';
+      currentWs = null;
+    };
+    ws.onerror = () => ws.close();
+  } catch (_) { if (live) live.style.display = 'none'; }
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ─── New Build Modal ──────────────────────────────────────────────────
+function openNewBuild() {
+  document.getElementById('newBuildModal').classList.add('active');
   updateCost();
 }
-
 function closeNewBuild() {
   document.getElementById('newBuildModal').classList.remove('active');
   document.getElementById('buildForm').reset();
   currentQuote = null;
-  updateSourceTypeUI();
+  toggleZipMode(false);
 }
 
-document.getElementById('newBuildModal').addEventListener('click', e => {
-  if (e.target.classList.contains('modal-overlay')) closeNewBuild();
-});
+function toggleZipMode(isZip) {
+  document.getElementById('sourceUrlGroup').style.display  = isZip ? 'none' : '';
+  document.getElementById('zipFileGroup').style.display    = isZip ? ''     : 'none';
+  document.getElementById('zipMetaGroup').style.display    = isZip ? ''     : 'none';
+  document.getElementById('branchGroup').style.display     = isZip ? 'none' : '';
+  const urlInput = document.getElementById('sourceUrlInput');
+  if (urlInput) urlInput.required = !isZip;
+}
 
-// ─── Preflight ─────────────────────────────────────────────────────────
-async function preflightCheck(walletAddress, platform, buildType, paymentMethod) {
+// ─── ZIP Upload ───────────────────────────────────────────────────────
+async function uploadZip(file, paymentBody) {
+  const fd = new FormData();
+  fd.append('file', file);
+  Object.entries(paymentBody).forEach(([k, v]) => v != null && fd.append(k, v));
+  const res  = await fetch(`${API}/uploads/project-zip`, { method: 'POST', body: fd });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || data.detail || 'Upload failed');
+  return data; // { zip_id, ... }
+}
+
+// ─── Payment helpers ──────────────────────────────────────────────────
+async function _attachThrPayment(body, paymentMethod) {
+  if (paymentMethod !== 'thr' && paymentMethod !== 'thronos') return;
+
+  const bridge = window.ThronosBuilderWallet;
+
+  if (bridge && bridge.isConnected()) {
+    const to = currentQuote?.treasury_address || '';
+    const amount = currentQuote?.native_cost_thr || 0;
+    try {
+      const payResult = await bridge.pay({ to, amount });
+      if (payResult.ok && payResult.tx_id) {
+        body.tx_id = payResult.tx_id;
+        body.payment_method = 'thr';
+        return;
+      }
+      if (payResult.ok && payResult.auth_secret) {
+        body.auth_secret = payResult.auth_secret;
+        return;
+      }
+    } catch (_) { /* fall through to legacy */ }
+  }
+
+  // Fallback: legacy sessionStorage
+  const thrAuth = getThrAuth();
+  if (thrAuth?.secret) {
+    body.auth_secret = thrAuth.secret;
+  }
+}
+
+// ─── Cross-Chain Payment Processing ────────────────────────────────────
+async function processCrossChainPayment(method, form) {
+  if (method === 'usdc_sol')  return await processPhantomPayment(form);
+  if (method === 'usdt_evm')  return await processUsdtPayment(form);
+  if (method === 'eth' || method === 'bnb') return await processEVMPayment(method, form);
+  if (method === 'btc_bridge') return await processBtcBridgePayment(form);
+  return null;
+}
+
+async function processBtcBridgePayment(form) {
+  if (!currentQuote) { toast('No pricing quote available', 'error'); return null; }
+  const btcAmount = currentQuote.external_amount;
   try {
-    const res = await fetch(`${API}/builds/preflight`, {
+    toast('Requesting BTC bridge deposit address...', 'success');
+    const res = await fetch(`${API}/payments/btc-bridge/prepare`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        wallet_address: walletAddress,
-        platform,
-        build_type: normalizeBuildType(buildType),
-        payment_method: paymentMethod || 'thr',
-      }),
+      body: JSON.stringify({ amount_btc: btcAmount, quote_id: currentQuote.quote_id }),
     });
     const data = await res.json();
-    if (!res.ok) return data?.error ? data : { error: 'Preflight check failed' };
-    return data;
-  } catch (err) { return { error: err.message }; }
+    if (!res.ok) throw new Error(data.error || 'BTC bridge prep failed');
+    const confirmed = confirm(`Send exactly ${btcAmount} BTC to:\n${data.deposit_address}\n\nClick OK after your transaction is confirmed.`);
+    if (!confirmed) return null;
+    return { tx_id: data.pending_tx_id || null, deposit_address: data.deposit_address };
+  } catch (e) { toast(e.message, 'error'); return null; }
 }
 
-// ─── Submit Build ──────────────────────────────────────────────────────
-async function submitBuild(e) {
-  e.preventDefault();
-  const form = document.getElementById('buildForm');
-  const btn  = document.getElementById('submitBtn');
-  btn.disabled = true; btn.textContent = 'Processing...';
+async function processPhantomPayment(form) {
+  if (!window.solana?.isPhantom) { toast('Phantom wallet not detected', 'error'); return null; }
+  if (!currentQuote) { toast('No pricing quote available', 'error'); return null; }
+  try {
+    const provider = window.solana;
+    if (!provider.isConnected) await provider.connect();
+    const solAddress = provider.publicKey?.toString();
+    if (!solAddress) throw new Error('Phantom not connected');
+    const quoteId  = currentQuote.quote_id;
+    const amount   = currentQuote.external_amount;
+    const toAddr   = currentQuote.payment_address;
+    if (!toAddr) throw new Error('No payment address in quote');
+    const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = window.solanaWeb3 || {};
+    if (!Connection) throw new Error('solana/web3.js not loaded');
+    const conn    = new Connection('https://api.mainnet-beta.solana.com');
+    const fromPK  = new PublicKey(solAddress);
+    const toPK    = new PublicKey(toAddr);
+    const lamports = Math.round(amount * LAMPORTS_PER_SOL);
+    const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: fromPK, toPubkey: toPK, lamports }));
+    tx.feePayer  = fromPK;
+    tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
+    const signed = await provider.signTransaction(tx);
+    const txId   = await conn.sendRawTransaction(signed.serialize());
+    return { tx_id: txId, quote_id: quoteId };
+  } catch (e) { toast(e.message || 'Phantom payment failed', 'error'); return null; }
+}
 
-  const sourceType    = form.source_type.value;
-  const paymentMethod = form.payment_method?.value || 'thr';
+async function processUsdtPayment(form) {
+  const chain = form.usdt_chain?.value || 'ethereum';
+  return await processEVMPayment('usdt', form, chain);
+}
+
+async function processEVMPayment(method, form, chain) {
+  if (!window.ethereum) { toast('MetaMask not detected', 'error'); return null; }
+  if (!currentQuote)    { toast('No pricing quote available', 'error'); return null; }
+  try {
+    const accounts  = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    const from      = accounts[0];
+    const to        = currentQuote.payment_address;
+    const amount    = currentQuote.external_amount;
+    const quoteId   = currentQuote.quote_id;
+    if (!to) throw new Error('No payment address in quote');
+    const { ethers } = window;
+    if (!ethers) throw new Error('ethers.js not loaded');
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer   = await provider.getSigner();
+    let tx;
+    if (method === 'usdt') {
+      const USDT_ADDR = currentQuote.token_contract;
+      if (!USDT_ADDR) throw new Error('USDT contract address not in quote');
+      const erc20 = new ethers.Contract(USDT_ADDR, ['function transfer(address,uint256) returns(bool)'], signer);
+      const decimals = 6;
+      const amt = ethers.parseUnits(String(amount), decimals);
+      tx = await erc20.transfer(to, amt);
+    } else {
+      tx = await signer.sendTransaction({ to, value: ethers.parseEther(String(amount)) });
+    }
+    return { tx_id: tx.hash, quote_id: quoteId };
+  } catch (e) { toast(e.message || 'EVM payment failed', 'error'); return null; }
+}
+
+// ─── Build Submission ─────────────────────────────────────────────────
+async function submitBuild(event) {
+  event.preventDefault();
+  const form = event.target;
+  const btn  = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
 
   try {
-    // ── ZIP Upload flow ─────────────────────────────────────────────
-    if (sourceType === 'zip') {
-      const zipInput = form.querySelector('[name="project_zip"]');
-      if (!zipInput?.files?.length) { toast('Please select a .zip file to upload', 'error'); return; }
-      const zipFile = zipInput.files[0];
-      if (!zipFile.name.toLowerCase().endsWith('.zip')) { toast('File must be a .zip archive', 'error'); return; }
+    const paymentMethod = form.payment_method.value;
+    const isZip = form.source_type.value === 'zip';
 
-      btn.textContent = 'Uploading ZIP...';
-      const uploadData = new FormData();
-      uploadData.append('wallet_address', wallet.address);
-      uploadData.append('project_name', form.project_name.value);
-      uploadData.append('platform', form.platform.value);
-      uploadData.append('build_type', normalizeBuildType(form.build_type.value));
-      uploadData.append('project_type', form.project_type?.value || 'auto');
-      uploadData.append('project_path', form.project_path?.value || '');
-      uploadData.append('file', zipFile);
+    // ── ZIP Upload flow ───────────────────────────────────────────────
+    if (isZip) {
+      const zipFile = form.project_zip?.files?.[0];
+      if (!zipFile) { toast('Please select a ZIP file', 'error'); return; }
+      btn.textContent = 'Uploading...';
 
-      const uploadRes  = await fetch(`${API}/uploads/project-zip`, { method: 'POST', body: uploadData });
-      const uploadJson = await uploadRes.json();
-      if (!uploadRes.ok) { toast(uploadJson.error || uploadJson.detail || 'ZIP upload failed', 'error'); return; }
+      const payBody = {
+        project_name:   form.project_name.value,
+        platform:       form.platform.value,
+        build_type:     normalizeBuildType(form.build_type.value),
+        payment_method: paymentMethod,
+        project_type:   form.project_type?.value || 'auto',
+        project_path:   form.project_path?.value || '',
+        quote_id:       currentQuote?.quote_id || null,
+      };
+      await _attachThrPayment(payBody, paymentMethod);
 
-      btn.textContent = 'Submitting Build...';
+      try {
+        const uploadData = await uploadZip(zipFile, payBody);
+        if (uploadData.job_id) {
+          toast('Build submitted!', 'success'); closeNewBuild(); openBuildDetail(uploadData.job_id);
+        } else {
+          throw new Error(uploadData.error || 'Upload returned no job_id');
+        }
+      } catch (e) { toast(e.message, 'error'); }
+      return;
+    }
+
+    // ── THR-native ZIP-less flow (for THR payment via bridge) ──────────
+    if ((paymentMethod === 'thr' || paymentMethod === 'thronos') && wallet.type === 'thronos' && !isZip) {
+      btn.textContent = 'Processing payment...';
       const body = {
-        wallet_address: wallet.address,
         project_name:  form.project_name.value,
-        source_type:   'zip',
-        source_url:    uploadJson.source_url,
-        upload_id:     uploadJson.upload_id,
-        upload_token:  uploadJson.upload_token,
-        project_type:  form.project_type?.value || 'auto',
-        project_path:  form.project_path?.value || '',
+        source_url:    form.source_url?.value || '',
+        branch:        form.branch?.value || 'main',
         platform:      form.platform.value,
         build_type:    normalizeBuildType(form.build_type.value),
         payment_method: paymentMethod,
@@ -723,318 +571,281 @@ async function submitBuild(e) {
       if (preflight.error) { toast(preflight.error + (preflight.hint ? ' — ' + preflight.hint : ''), 'error'); return; }
       if (preflight.address_valid === false) { toast('Invalid THR wallet address.', 'error'); return; }
       if (preflight.balance !== null && preflight.can_afford === false) {
-        toast(`Insufficient balance: ${preflight.balance} THR. Need: ${preflight.native_cost_thr} THR`, 'error'); return;
+        toast(`Insufficient THR balance. Need ${preflight.required_thr}, have ${preflight.balance}.`, 'error');
+        return;
       }
-      if (preflight.quote_id) currentQuote = preflight;
     }
 
-    let paymentProof = null;
+    // Process cross-chain payment first
+    let crossChainResult = null;
     if (isCrossChain) {
-      btn.textContent = 'Awaiting wallet...';
-      paymentProof = await processCrossChainPayment(paymentMethod, form);
-      if (!paymentProof) { toast('Payment cancelled or failed', 'error'); return; }
+      btn.textContent = 'Processing payment...';
+      crossChainResult = await processCrossChainPayment(paymentMethod, form);
+      if (!crossChainResult) return; // User cancelled or payment failed
     }
 
-    btn.textContent = 'Submitting Build...';
+    btn.textContent = 'Submitting build...';
     const body = {
-      wallet_address: wallet.address,
-      project_name:   form.project_name.value,
-      source_type:    sourceType,
-      source_url:     form.source_url.value,
-      branch:         form.branch.value || 'main',
-      platform:       form.platform.value,
-      build_type:     normalizeBuildType(form.build_type.value),
+      project_name:  form.project_name.value,
+      source_url:    form.source_url?.value || '',
+      branch:        form.branch?.value || 'main',
+      platform:      form.platform.value,
+      build_type:    normalizeBuildType(form.build_type.value),
       payment_method: paymentMethod,
-      payment_chain:  wallet.chain,
-      payment_proof:  paymentProof,
-      tx_id:          paymentProof?.txHash || paymentProof?.signature || undefined,
-      quote_id:       currentQuote?.quote_id || null,
+      payment_chain: wallet.chain || null,
+      wallet_address: wallet.address || null,
+      quote_id:      currentQuote?.quote_id || null,
     };
 
-    await _attachThrPayment(body, paymentMethod);
+    if (isCrossChain && crossChainResult) {
+      body.tx_id    = crossChainResult.tx_id;
+      body.quote_id = crossChainResult.quote_id || body.quote_id;
+    } else {
+      await _attachThrPayment(body, paymentMethod);
+    }
 
     const res  = await fetch(`${API}/builds`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
     if (res.ok) { toast('Build submitted!', 'success'); closeNewBuild(); openBuildDetail(data.job_id); }
     else toast(data.error || data.detail || 'Submission failed', 'error');
 
-  } catch (err) {
-    toast('Error: ' + err.message, 'error');
   } finally {
-    btn.disabled = false; btn.textContent = 'Submit Build';
+    btn.disabled = false;
+    btn.textContent = 'Submit Build';
   }
 }
 
-/**
- * Attach THR payment info to a build body.
- * Priority: ThronosBuilderWallet.pay() (client-side tx_id) > auth_secret (legacy)
- */
-async function _attachThrPayment(body, paymentMethod) {
-  if (paymentMethod !== 'thr' && paymentMethod !== 'thronos') return;
+// ─── Wallet Connect ───────────────────────────────────────────────────
+function openWalletModal() {
+  document.getElementById('walletModal').classList.add('active');
+}
+function closeWalletModal() {
+  document.getElementById('walletModal').classList.remove('active');
+}
 
+async function connectThronosWallet() {
   const bridge = window.ThronosBuilderWallet;
+  if (!bridge) { toast('Thronos Wallet bridge not loaded', 'error'); return; }
 
-  // A: Bridge available and connected with session or key → client-side payment
-  if (bridge && bridge.isConnected() &&
-      (bridge._getMethod?.() === 'session' || bridge._getMethod?.() === 'key')) {
-    try {
-      const TREASURY_THR = currentQuote?.treasury_address || '';
-      const amount = currentQuote?.native_cost_thr || 0;
-      if (TREASURY_THR && amount) {
-        const payResult = await bridge.pay({ to: TREASURY_THR, amount });
-        if (payResult.ok && payResult.tx_id) {
-          body.tx_id = payResult.tx_id;
-          body.payment_method = 'thr';
-          return;
-        }
-      }
-    } catch (_) { /* fall through to legacy */ }
+  // 1. Try auto-detect (walletSession already present)
+  const auto = bridge.autoConnect();
+  if (auto.ok) {
+    setWalletConnected(auto.address, 'thronos', 'ThronosChain');
+    toast('Thronos Wallet connected (auto)', 'success');
+    return;
   }
 
-  // B: Bridge available with secret
-  if (bridge && bridge.isConnected()) {
-    const payResult = await bridge.pay({ to: '', amount: 0 });
-    if (payResult.ok && payResult.auth_secret) {
-      body.auth_secret = payResult.auth_secret;
+  // 2. Try sessionStorage
+  const stored = bridge.getStoredSession();
+  if (stored) {
+    const r = bridge.connectWithSecret(stored.address, stored.secret);
+    if (r.ok) {
+      setWalletConnected(r.address, 'thronos', 'ThronosChain');
+      toast('Thronos Wallet restored from session', 'success');
       return;
     }
   }
 
-  // C: Legacy sessionStorage
-  const thrAuth = getThrAuth();
-  if (thrAuth?.secret) {
-    body.auth_secret = thrAuth.secret;
+  // 3. Show connect modal
+  showThronosConnectModal();
+}
+
+function showThronosConnectModal() {
+  // Close the wallet picker and show the Thronos-specific connect modal
+  closeWalletModal();
+
+  // Build inline modal
+  const existing = document.getElementById('thrConnectModal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'thrConnectModal';
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:420px">
+      <h2>Connect Thronos Wallet</h2>
+      <div class="thr-tabs" style="display:flex;gap:8px;margin-bottom:16px">
+        <button id="thrTabSecret" class="btn btn-primary" style="flex:1" onclick="switchThrTab('secret')">Address + Secret</button>
+        <button id="thrTabKey" class="btn btn-secondary" style="flex:1" onclick="switchThrTab('key')">Import Signing Key</button>
+      </div>
+
+      <div id="thrPanelSecret">
+        <div class="form-group">
+          <label>THR Address</label>
+          <input type="text" id="thrAddress" placeholder="THR..." style="width:100%;box-sizing:border-box">
+        </div>
+        <div class="form-group">
+          <label>Send Secret</label>
+          <input type="password" id="thrSecret" placeholder="Your send secret" style="width:100%;box-sizing:border-box">
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-secondary" onclick="document.getElementById('thrConnectModal').remove()">Cancel</button>
+          <button class="btn btn-primary" onclick="submitThronosSecret()">Connect</button>
+        </div>
+      </div>
+
+      <div id="thrPanelKey" style="display:none">
+        <div class="form-group">
+          <label>Hex Private Key</label>
+          <input type="password" id="thrPrivKey" placeholder="64-char hex key (no 0x prefix)" style="width:100%;box-sizing:border-box">
+          <p style="font-size:12px;color:var(--text-secondary);margin-top:6px">Key is used to sign the payment locally. It is never sent to ThronosBuild servers.</p>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-secondary" onclick="document.getElementById('thrConnectModal').remove()">Cancel</button>
+          <button class="btn btn-primary" id="thrKeyBtn" onclick="submitThronosKeyImport()">Import &amp; Connect</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function switchThrTab(tab) {
+  document.getElementById('thrPanelSecret').style.display = tab === 'secret' ? '' : 'none';
+  document.getElementById('thrPanelKey').style.display    = tab === 'key'    ? '' : 'none';
+  document.getElementById('thrTabSecret').className = tab === 'secret' ? 'btn btn-primary' : 'btn btn-secondary';
+  document.getElementById('thrTabKey').className    = tab === 'key'    ? 'btn btn-primary' : 'btn btn-secondary';
+}
+
+function submitThronosSecret() {
+  const bridge  = window.ThronosBuilderWallet;
+  const address = document.getElementById('thrAddress')?.value?.trim();
+  const secret  = document.getElementById('thrSecret')?.value?.trim();
+  if (!address || !secret) { toast('Address and secret are required', 'error'); return; }
+  const r = bridge.connectWithSecret(address, secret);
+  if (!r.ok) { toast('Invalid address or secret: ' + r.reason, 'error'); return; }
+  bridge.storeSession(address, secret);
+  document.getElementById('thrConnectModal')?.remove();
+  setWalletConnected(r.address, 'thronos', 'ThronosChain');
+  toast('Thronos Wallet connected', 'success');
+}
+
+async function submitThronosKeyImport() {
+  const bridge = window.ThronosBuilderWallet;
+  const hexKey = document.getElementById('thrPrivKey')?.value?.trim();
+  if (!hexKey) { toast('Private key required', 'error'); return; }
+  const btn = document.getElementById('thrKeyBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Deriving address...'; }
+  try {
+    const r = await bridge.connectWithPrivateKey(hexKey);
+    if (!r.ok) { toast('Key import failed: ' + r.reason, 'error'); return; }
+    document.getElementById('thrConnectModal')?.remove();
+    setWalletConnected(r.address, 'thronos', 'ThronosChain');
+    toast('Signing key imported. Address: ' + r.address, 'success');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Import & Connect'; }
   }
 }
 
-// ─── Cross-Chain Payment Processing ────────────────────────────────────
-async function processCrossChainPayment(method, form) {
-  if (method === 'usdc_sol')  return await processPhantomPayment(form);
-  if (method === 'usdt_evm')  return await processUsdtPayment(form);
-  if (method === 'eth' || method === 'bnb') return await processEVMPayment(method, form);
-  if (method === 'btc_bridge') return await processBtcBridgePayment(form);
-  return null;
+async function connectMetaMask() {
+  if (!window.ethereum) { toast('MetaMask not detected. Please install it.', 'error'); return; }
+  try {
+    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    if (!accounts[0]) throw new Error('No account returned');
+    setWalletConnected(accounts[0], 'metamask', 'Ethereum');
+    wallet.chain = 'ethereum';
+    toast('MetaMask connected', 'success');
+  } catch (e) { toast(e.message || 'MetaMask connection failed', 'error'); }
 }
 
-async function processBtcBridgePayment(form) {
-  if (!currentQuote) { toast('No pricing quote available', 'error'); return null; }
-  const btcAmount = currentQuote.external_amount;
+async function connectPhantom() {
+  if (!window.solana?.isPhantom) { toast('Phantom not detected. Please install it.', 'error'); return; }
   try {
-    toast('Requesting BTC bridge deposit address...', 'success');
-    const res = await fetch(`${API}/payments/btc-bridge/prepare`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payer_thr: wallet.address, amount_thr_equivalent: currentQuote.native_cost_thr, amount_btc: btcAmount, service_type: 'builder_build' }),
+    const resp = await window.solana.connect();
+    const addr = resp.publicKey.toString();
+    setWalletConnected(addr, 'phantom', 'Solana');
+    wallet.chain = 'solana';
+    toast('Phantom connected', 'success');
+  } catch (e) { toast(e.message || 'Phantom connection failed', 'error'); }
+}
+
+async function connectManualWallet() {
+  const input = document.getElementById('manualWalletInput');
+  const addr  = input?.value?.trim();
+  if (!addr) { toast('Please enter a wallet address', 'error'); return; }
+  let type = 'unknown', chain = 'unknown';
+  if (/^THR[0-9a-fA-F]{40}$/.test(addr))        { type = 'thronos'; chain = 'ThronosChain'; }
+  else if (/^0x[0-9a-fA-F]{40}$/.test(addr))    { type = 'evm';     chain = 'Ethereum'; }
+  else if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr)) { type = 'solana'; chain = 'Solana'; }
+  setWalletConnected(addr, type, chain);
+  toast(`Wallet connected (${chain})`, 'success');
+}
+
+// ─── Payment method UI ────────────────────────────────────────────────
+function initPaymentMethodUI() {
+  const methods = document.querySelectorAll('.payment-option');
+  methods.forEach(opt => {
+    opt.addEventListener('click', () => {
+      const method = opt.dataset.method;
+      if (!method) return;
+      document.querySelectorAll('[data-method]').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      const usdtSel = document.getElementById('usdtChainSelect');
+      if (usdtSel) usdtSel.style.display = method === 'usdt_evm' ? 'block' : 'none';
+      updateCost();
     });
-    if (res.ok) {
-      const data = await res.json();
-      const confirmed = confirm(`Send exactly ${btcAmount} BTC to:\n\n${data.btc_deposit_address}\n\nThe SHA-256 bridge will convert to ${currentQuote.native_cost_thr} THR automatically.\nClick OK after sending the BTC transaction.`);
-      if (!confirmed) return null;
-      return { type: 'btc_bridge', btc_deposit_address: data.btc_deposit_address, amount_btc: btcAmount, amount_thr_equivalent: currentQuote.native_cost_thr, payer_thr: wallet.address, bridge_id: data.bridge_id, timestamp: Date.now() };
-    }
-    const txHash = prompt(`BTC Bridge Payment\nAmount: ${btcAmount} BTC (= ${currentQuote.native_cost_thr} THR)\n\nSend BTC to the Thronos SHA-256 bridge and paste the BTC transaction hash:`);
-    if (!txHash) return null;
-    return { type: 'btc_bridge', txHash: txHash.trim(), amount_btc: btcAmount, amount_thr_equivalent: currentQuote.native_cost_thr, payer_thr: wallet.address, timestamp: Date.now() };
-  } catch (err) { toast('BTC bridge error: ' + err.message, 'error'); return null; }
-}
+  });
 
-async function processPhantomPayment(form) {
-  const phantom = wallet.provider;
-  if (!phantom) { toast('Phantom wallet not connected', 'error'); return null; }
-  if (!currentQuote) { toast('No pricing quote available', 'error'); return null; }
-  try {
-    const usdcAmount = currentQuote.external_amount * 1e6;
-    const paymentRes = await fetch(`${API}/payments/solana/prepare`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payer: wallet.address, amount_usdc: usdcAmount, service_type: 'builder_build', treasury: TREASURY.solana }),
+  const usdtChains = document.querySelectorAll('[data-usdtchain]');
+  usdtChains.forEach(opt => {
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('[data-usdtchain]').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      updateCost();
     });
-    if (paymentRes.ok) {
-      const paymentData = await paymentRes.json();
-      return paymentData.payment_proof;
-    }
-    toast('Requesting payment confirmation...', 'success');
-    const message   = new TextEncoder().encode(`ThronosBuild payment: ${currentQuote.native_cost_thr} THR equivalent in USDC\nProject: ${form.project_name.value}\nTimestamp: ${Date.now()}`);
-    const signature = await phantom.signMessage(message, 'utf8');
-    return { type: 'solana_signed_intent', payer: wallet.address, signature: btoa(String.fromCharCode(...signature.signature)), amount_usdc: currentQuote.external_amount, amount_thr_equivalent: currentQuote.native_cost_thr, timestamp: Date.now() };
-  } catch (err) { toast('Solana payment failed: ' + err.message, 'error'); return null; }
+  });
+
+  const sourceType = document.getElementById('sourceTypeSelect');
+  if (sourceType) {
+    sourceType.addEventListener('change', () => toggleZipMode(sourceType.value === 'zip'));
+  }
 }
 
-async function processEVMPayment(method, form) {
-  if (!wallet.provider) { toast('MetaMask not connected', 'error'); return null; }
-  if (!currentQuote)    { toast('No pricing quote available', 'error'); return null; }
+// ─── Public config ────────────────────────────────────────────────────
+async function loadPublicConfig() {
   try {
-    const amount = currentQuote.external_amount;
-    let value, chain;
-    if (method === 'eth') {
-      value = '0x' + BigInt(Math.round(amount * 1e18)).toString(16);
-      chain = wallet.chain;
-    } else {
-      value = '0x' + BigInt(Math.round(amount * 1e18)).toString(16);
-      chain = 'bsc';
-      if (wallet.chain !== 'bsc') {
-        try { await wallet.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x38' }] }); }
-        catch { toast('Please switch to BNB Chain in MetaMask', 'error'); return null; }
+    const { ok, data } = await apiFetch('/status/config');
+    if (ok && data) publicConfig = data;
+  } catch (_) {}
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  // Nav
+  document.querySelectorAll('.navbar-links a').forEach(a => {
+    a.addEventListener('click', e => { e.preventDefault(); showPage(a.dataset.page); });
+  });
+
+  // Wallet button
+  document.getElementById('connectWallet')?.addEventListener('click', () => {
+    if (wallet.address) {
+      if (confirm('Disconnect wallet?')) {
+        wallet = { address: null, type: null, chain: null, provider: null };
+        const btn   = document.getElementById('connectWallet');
+        const badge = document.getElementById('chainBadge');
+        if (btn)   { btn.textContent = 'Connect Wallet'; btn.classList.remove('connected'); }
+        if (badge) badge.style.display = 'none';
+        window.ThronosBuilderWallet?.disconnect();
       }
+    } else { openWalletModal(); }
+  });
+
+  // New Build button
+  document.getElementById('newBuildBtn')?.addEventListener('click', openNewBuild);
+
+  // Init UI components
+  initPaymentMethodUI();
+
+  // Load data
+  await Promise.all([loadPricing(), loadStats(), loadBuilds(), loadPublicConfig()]);
+
+  // Auto-restore Thronos wallet from session storage
+  const bridge = window.ThronosBuilderWallet;
+  if (bridge) {
+    const stored = bridge.getStoredSession();
+    if (stored) {
+      const r = bridge.connectWithSecret(stored.address, stored.secret);
+      if (r.ok) setWalletConnected(r.address, 'thronos', 'ThronosChain');
     }
-    toast('Confirm transaction in MetaMask...', 'success');
-    const txHash = await wallet.provider.request({
-      method: 'eth_sendTransaction',
-      params: [{ from: wallet.address, to: TREASURY[chain] || TREASURY.ethereum, value, data: '0x' }],
-    });
-    toast('Transaction submitted!', 'success');
-    await fetch(`${API}/payments/crosschain/register`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tx_hash: txHash, chain, payer: wallet.address, amount_thr_equivalent: currentQuote.native_cost_thr, service_type: 'builder_build', fee_action: 'stake_and_mint' }),
-    }).catch(() => {});
-    return { type: 'evm_tx', tx_hash: txHash, chain, payer: wallet.address, amount_thr_equivalent: currentQuote.native_cost_thr, timestamp: Date.now() };
-  } catch (err) {
-    toast(err.code === 4001 ? 'Transaction rejected by user' : 'EVM payment failed: ' + err.message, 'error');
-    return null;
   }
-}
-
-async function processUsdtPayment(form) {
-  if (!wallet.provider) { toast('MetaMask not connected', 'error'); return null; }
-  if (!currentQuote)    { toast('No pricing quote available', 'error'); return null; }
-  try {
-    const usdtAmount  = currentQuote.external_amount;
-    const usdtChain   = form.usdt_chain?.value || 'ethereum';
-    const usdtContract = USDT_CONTRACTS[usdtChain];
-    if (!usdtContract) { toast('USDT not available on this chain', 'error'); return null; }
-    const chainIds     = { ethereum: '0x1', arbitrum: '0xa4b1', bsc: '0x38' };
-    const currentChainId = await wallet.provider.request({ method: 'eth_chainId' });
-    if (currentChainId !== chainIds[usdtChain]) {
-      try { await wallet.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIds[usdtChain] }] }); }
-      catch { toast(`Please switch to ${usdtChain} in MetaMask`, 'error'); return null; }
-    }
-    toast('Confirm USDT transfer in MetaMask...', 'success');
-    const decimals  = usdtChain === 'bsc' ? 18 : 6;
-    const amountRaw = BigInt(Math.floor(usdtAmount * (10 ** decimals)));
-    const amountHex = '0x' + amountRaw.toString(16).padStart(64, '0');
-    const toPadded  = (TREASURY[usdtChain] || TREASURY.ethereum).toLowerCase().replace('0x', '').padStart(64, '0');
-    const data      = ERC20_TRANSFER_ABI + toPadded + amountHex;
-    const txHash = await wallet.provider.request({
-      method: 'eth_sendTransaction',
-      params: [{ from: wallet.address, to: usdtContract, data, value: '0x0' }],
-    });
-    toast('USDT transaction submitted!', 'success');
-    await fetch(`${API}/payments/crosschain/register`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tx_hash: txHash, chain: usdtChain, payer: wallet.address, amount_thr_equivalent: currentQuote.native_cost_thr, service_type: 'builder_build', fee_action: 'stake_and_mint', token_symbol: 'USDT' }),
-    }).catch(() => {});
-    return { type: 'evm_token_tx', tx_hash: txHash, chain: usdtChain, token: 'USDT', token_contract: usdtContract, payer: wallet.address, amount_usdt: usdtAmount, amount_thr_equivalent: currentQuote.native_cost_thr, timestamp: Date.now() };
-  } catch (err) {
-    toast(err.code === 4001 ? 'Transaction rejected by user' : 'USDT payment failed: ' + err.message, 'error');
-    return null;
-  }
-}
-
-// ─── Actions ───────────────────────────────────────────────────────────
-async function cancelBuild(jobId) {
-  if (!confirm('Cancel this build?')) return;
-  try {
-    const res = await fetch(`${API}/builds/${jobId}/cancel`, { method: 'POST' });
-    if (res.ok) { toast('Build cancelled', 'success'); loadBuilds(); }
-    else toast('Failed to cancel', 'error');
-  } catch { toast('Network error', 'error'); }
-}
-
-async function editAndRetryBuild(jobId) {
-  if (!wallet.address) { toast('Please connect your wallet first', 'error'); return; }
-  try {
-    const detailRes = await fetch(`${API}/builds/${jobId}`);
-    const build = await detailRes.json();
-    if (!detailRes.ok) { toast(build.error || 'Failed to load build details', 'error'); return; }
-    const nextSourceUrl  = prompt('Repository URL', build.source_url || '');
-    if (nextSourceUrl === null) return;
-    const nextBranch     = prompt('Branch', build.branch || 'main');
-    if (nextBranch === null) return;
-    const nextProjectPath = prompt('Project path (e.g. frontend)', build.project_path || '');
-    if (nextProjectPath === null) return;
-    const nextBuildType  = normalizeBuildType(prompt('Build type (apk or aab)', build.build_type || 'apk'));
-    const res  = await fetch(`${API}/builds/${jobId}/retry-paid`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet_address: wallet.address, source_url: nextSourceUrl.trim(), branch: (nextBranch||'main').trim(), project_path: (nextProjectPath||'').trim(), build_type: nextBuildType }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (res.status === 402 && data.price_difference !== undefined) toast(`Additional payment required: +${data.price_difference} THR`, 'error');
-      else toast(data.error || 'Retry failed', 'error');
-      return;
-    }
-    toast('Retry submitted without additional charge', 'success');
-    openBuildDetail(jobId); loadBuilds();
-  } catch { toast('Network error', 'error'); }
-}
-
-async function retryBuild(jobId) {
-  try {
-    const res  = await fetch(`${API}/builds/${jobId}/retry`, { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) { toast('Build retry started!', 'success'); openBuildDetail(jobId); }
-    else toast(data.error || 'Retry failed', 'error');
-  } catch { toast('Network error', 'error'); }
-}
-
-function downloadArtifact(jobId, platform) {
-  const appUrl      = publicConfig?.app_url;
-  const fallbackUrl = publicConfig?.public_fallback_url;
-  let useFallback = false;
-  if (appUrl && fallbackUrl) {
-    try { if (window.location.hostname !== new URL(appUrl).hostname) useFallback = true; } catch {}
-  }
-  window.open(`${API}/builds/${jobId}/download/${platform}${useFallback ? '?fallback=1' : ''}`, '_blank');
-}
-
-// ─── Pricing Page ──────────────────────────────────────────────────────
-async function loadPricing() {
-  if (!pricingData) {
-    try { const res = await fetch(`${API}/status/pricing`); if (res.ok) pricingData = await res.json(); }
-    catch { pricingData = FALLBACK_PRICING; }
-  }
-  const p = getSafePricing(pricingData);
-  document.getElementById('pricingGrid').innerHTML = `
-    <div class="price-card">
-      <div class="platform-icon">&#129302;</div><h3>Android APK</h3>
-      <div class="price">${p.android.apk} <span class="unit">THR</span></div>
-      <ul class="features"><li>Debug &amp; Release builds</li><li>GitHub / GitLab / ZIP source</li><li>Real-time build logs</li><li>IPFS artifact storage</li><li>Pay with THR, ETH, USDT, USDC, BNB</li></ul>
-    </div>
-    <div class="price-card">
-      <div class="platform-icon">&#127922;</div><h3>Android AAB</h3>
-      <div class="price">${p.android.aab} <span class="unit">THR</span></div>
-      <ul class="features"><li>Play Store ready</li><li>Signed &amp; optimized</li><li>Real-time build logs</li><li>IPFS artifact storage</li><li>Pay with THR, ETH, USDT, USDC, BNB</li></ul>
-    </div>
-    <div class="price-card">
-      <div class="platform-icon">&#127823;</div><h3>iOS IPA</h3>
-      <div class="price">${p.ios.ipa} <span class="unit">THR</span></div>
-      <ul class="features"><li>macOS cloud build</li><li>Ad-hoc &amp; App Store distribution</li><li>Real-time build logs</li><li>IPFS artifact storage</li><li>Pay with THR, ETH, USDT, USDC, BNB</li></ul>
-    </div>
-    <div class="price-card" style="border-color:var(--accent)">
-      <div class="platform-icon">&#128171;</div><h3>Both Platforms</h3>
-      <div class="price">${p.android.apk + p.ios.ipa - p.bundle_discount} <span class="unit">THR</span></div>
-      <ul class="features"><li>Android + iOS in one build</li><li>Save ${p.bundle_discount} THR bundle discount</li><li>Parallel builds</li><li>Cross-chain fee &rarr; LP pools</li></ul>
-    </div>`;
-}
-
-// ─── Utilities ─────────────────────────────────────────────────────────
-function toast(msg, type = '') {
-  const el = document.createElement('div');
-  el.className = `toast ${type}`; el.textContent = msg;
-  document.getElementById('toastContainer').appendChild(el);
-  setTimeout(() => el.remove(), 4000);
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div'); div.textContent = str || ''; return div.innerHTML;
-}
-
-function timeAgo(date) {
-  if (!date) return '';
-  const s = Math.floor((Date.now() - new Date(date)) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return Math.floor(s / 60) + 'm ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-  return Math.floor(s / 86400) + 'd ago';
-}
-
-// ─── Init ──────────────────────────────────────────────────────────────
-loadDashboard();
+});
