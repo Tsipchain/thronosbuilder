@@ -235,6 +235,31 @@ jobs:
         working-directory: source
         run: npm install
 
+      - name: Patch expo-modules-core PermissionsService.kt
+        if: steps.detect.outputs.type == 'expo'
+        working-directory: source
+        run: |
+          PERMS="node_modules/expo-modules-core/android/src/main/java/expo/modules/adapters/react/permissions/PermissionsService.kt"
+          if [ ! -f "$PERMS" ]; then echo "PermissionsService.kt not found, skip"; exit 0; fi
+          EMC_VER=$(node -e "try{console.log(require('./node_modules/expo-modules-core/package.json').version)}catch(e){console.log('?')}")
+          echo "expo-modules-core $EMC_VER — patching PermissionsService.kt:166"
+          echo "=== lines 160-175 (before patch) ==="
+          awk 'NR>=160&&NR<=175{printf "%3d: %s\n",NR,$0}' "$PERMS"
+          # Surgical fix: if char at column 36 is '.', make it '?.' (null-safe call)
+          # Fallback: replace the first 'permissions.' on that line with 'permissions?.'
+          awk 'NR==166 {
+            if (substr($0,36,1)==".") {
+              print substr($0,1,35) "?." substr($0,37)
+            } else {
+              sub(/permissions\./, "permissions?.")
+              sub(/grantResults\./, "grantResults?.")
+              print $0
+            }
+            next
+          } {print}' "$PERMS" > /tmp/ps_patched.kt && mv /tmp/ps_patched.kt "$PERMS"
+          echo "=== line 166 after patch ==="
+          awk 'NR==166{printf "%3d: %s\n",NR,$0}' "$PERMS"
+
       - name: Expo prebuild (generate android/)
         if: steps.detect.outputs.type == 'expo'
         working-directory: source
