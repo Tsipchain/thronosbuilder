@@ -20,6 +20,7 @@ const buildRoutes = require('./routes/builds');
 const statusRoutes = require('./routes/status');
 const { cleanupOldArtifacts } = require('./services/storage');
 const uploadsRoutes = require('./routes/uploads');
+const walletConnectRoutes = require('./routes/walletConnect');
 const { cleanupOldUploads } = require('./services/uploadStorage');
 
 const app = express();
@@ -72,6 +73,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/v1/builds', buildRoutes);
 app.use('/api/v1/status', statusRoutes);
 app.use('/api/v1/uploads', uploadsRoutes);
+app.use('/api/wallet/wc', walletConnectRoutes);
 
 // Static frontend
 app.use(express.static(path.join(__dirname, '..', 'public')));
