@@ -196,9 +196,10 @@ function showThronosConnectModal() {
 
       <!-- Tab selector -->
       <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
-        <button id="tabRecoveryBtn" onclick="switchThrTab('recovery')" class="btn btn-primary" style="flex:1;font-size:12px;min-width:110px">Recovery JSON</button>
-        <button id="tabSecretBtn" onclick="switchThrTab('secret')" class="btn btn-secondary" style="flex:1;font-size:12px;min-width:110px">Address + Secret</button>
-        <button id="tabKeyBtn" onclick="switchThrTab('key')" class="btn btn-secondary" style="flex:1;font-size:12px;min-width:110px">Hex Key</button>
+        <button id="tabRecoveryBtn" onclick="switchThrTab('recovery')" class="btn btn-primary" style="flex:1;font-size:12px;min-width:90px">Recovery JSON</button>
+        <button id="tabSecretBtn" onclick="switchThrTab('secret')" class="btn btn-secondary" style="flex:1;font-size:12px;min-width:90px">Address + Secret</button>
+        <button id="tabKeyBtn" onclick="switchThrTab('key')" class="btn btn-secondary" style="flex:1;font-size:12px;min-width:90px">Hex Key</button>
+        <button id="tabMobileBtn" onclick="switchThrTab('mobile')" class="btn btn-secondary" style="flex:1;font-size:12px;min-width:90px">📱 Mobile QR</button>
       </div>
 
       <!-- Tab: Recovery JSON -->
@@ -249,6 +250,24 @@ function showThronosConnectModal() {
           <button onclick="submitThronosKeyImport()" class="btn btn-primary" style="flex:1" id="thrKeyConnectBtn">Import &amp; Connect</button>
         </div>
       </div>
+
+      <!-- Tab: Mobile QR (WalletConnect-style pairing) -->
+      <div id="tabMobile" style="display:none">
+        <div style="text-align:center;margin-bottom:14px">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+            Scan this QR with your <b>Thronos mobile wallet PWA</b> to connect and approve transactions from your phone.
+          </p>
+          <div id="wcQrBox" style="display:flex;align-items:center;justify-content:center;min-height:220px;background:var(--bg-secondary);border-radius:10px;border:1px solid var(--border)">
+            <span style="color:var(--text-secondary);font-size:13px">Generating QR…</span>
+          </div>
+          <div id="wcSessionStatus" style="margin-top:10px;font-size:12px;color:var(--text-secondary)">Waiting for mobile wallet to scan…</div>
+          <div id="wcUri" style="font-size:10px;font-family:monospace;color:var(--text-secondary);word-break:break-all;margin-top:6px;cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(this.dataset.uri||'').then(()=>toast('URI copied','success'))"></div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="document.getElementById('thronosConnectOverlay').remove()" class="btn btn-secondary" style="flex:1">Cancel</button>
+          <button onclick="startWcPairing()" class="btn btn-primary" style="flex:1" id="wcRefreshBtn">↻ New QR</button>
+        </div>
+      </div>
     </div>`;
   document.body.appendChild(overlay);
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
@@ -256,14 +275,98 @@ function showThronosConnectModal() {
 }
 
 function switchThrTab(tab) {
-  document.getElementById('tabRecovery').style.display = tab === 'recovery' ? 'block' : 'none';
-  document.getElementById('tabSecret').style.display   = tab === 'secret'   ? 'block' : 'none';
-  document.getElementById('tabKey').style.display      = tab === 'key'      ? 'block' : 'none';
-  document.getElementById('tabRecoveryBtn').className  = tab === 'recovery' ? 'btn btn-primary' : 'btn btn-secondary';
-  document.getElementById('tabSecretBtn').className    = tab === 'secret'   ? 'btn btn-primary' : 'btn btn-secondary';
-  document.getElementById('tabKeyBtn').className       = tab === 'key'      ? 'btn btn-primary' : 'btn btn-secondary';
+  ['recovery','secret','key','mobile'].forEach(t => {
+    const el = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (el) el.style.display = t === tab ? 'block' : 'none';
+    const btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1) + 'Btn');
+    if (btn) btn.className = t === tab ? 'btn btn-primary' : 'btn btn-secondary';
+  });
+  if (tab === 'mobile') startWcPairing();
 }
 switchThrTab.toString; // expose to inline onclick
+
+// ─── Mobile Wallet QR Pairing ─────────────────────────────────────────────────
+
+let _wcPairingSessionId  = null;
+let _wcPairingPollTimer  = null;
+const THRONOS_RELAY = window.location.origin; // same host as builder
+
+async function startWcPairing() {
+  const qrBox    = document.getElementById('wcQrBox');
+  const statusEl = document.getElementById('wcSessionStatus');
+  const uriEl    = document.getElementById('wcUri');
+  if (!qrBox) return;
+
+  if (_wcPairingPollTimer) { clearInterval(_wcPairingPollTimer); _wcPairingPollTimer = null; }
+
+  qrBox.innerHTML = '<span style="color:var(--text-secondary);font-size:13px">Generating…</span>';
+  if (statusEl) statusEl.textContent = 'Generating pairing QR…';
+
+  try {
+    const r = await fetch(`${THRONOS_RELAY}/api/wallet/wc/session/create`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dapp: 'ThronosBuilder' })
+    });
+    const d = await r.json();
+    if (!d.ok) { qrBox.innerHTML = '<span style="color:red;font-size:12px">Failed to generate session</span>'; return; }
+
+    _wcPairingSessionId = d.session_id;
+
+    // Display QR image
+    qrBox.innerHTML = `<img src="${d.qr_url}" alt="WalletConnect QR" style="border-radius:8px;max-width:220px" />`;
+
+    // Show shortened URI with copy
+    if (uriEl) {
+      uriEl.textContent = d.uri.slice(0, 60) + '…';
+      uriEl.dataset.uri = d.uri;
+    }
+
+    if (statusEl) statusEl.innerHTML = '⏳ Waiting for mobile wallet to scan… <br><small style="font-size:11px;color:var(--text-secondary)">Open <b>Thronos Wallet PWA → Connect → Scan QR</b></small>';
+
+    // Poll for pairing confirmation
+    _wcPairingPollTimer = setInterval(async () => {
+      try {
+        const pr = await fetch(`${THRONOS_RELAY}/api/wallet/wc/session/${_wcPairingSessionId}`);
+        const pd = await pr.json();
+        if (pd.ok && pd.status === 'connected' && pd.address) {
+          clearInterval(_wcPairingPollTimer);
+          _wcPairingPollTimer = null;
+          _wcMobileAddress = pd.address;
+
+          if (statusEl) statusEl.innerHTML = `✅ Mobile wallet connected!<br><small style="font-family:monospace">${pd.address.slice(0,14)}…</small>`;
+          qrBox.innerHTML = `<div style="text-align:center;padding:20px">
+            <div style="font-size:2rem">✅</div>
+            <div style="color:#4caf50;font-weight:600;margin-top:8px">Connected</div>
+            <div style="font-family:monospace;font-size:11px;color:var(--text-secondary);margin-top:4px">${pd.address}</div>
+          </div>`;
+
+          // Close modal and register the mobile wallet
+          setTimeout(() => {
+            document.getElementById('thronosConnectOverlay')?.remove();
+            setWalletConnected(pd.address, 'thronos_mobile', 'thronos');
+            wallet.mobileSessionId = _wcPairingSessionId;
+            wallet.mobileApprovalEnabled = true;
+            toast('📱 Mobile wallet connected! Transactions will require phone approval.', 'success');
+          }, 1200);
+        }
+      } catch {}
+    }, 2500);
+
+    // Auto-expire after 5 minutes
+    setTimeout(() => {
+      if (_wcPairingPollTimer) {
+        clearInterval(_wcPairingPollTimer);
+        _wcPairingPollTimer = null;
+        if (statusEl) statusEl.textContent = 'QR expired. Click "New QR" to regenerate.';
+      }
+    }, 5 * 60 * 1000);
+
+  } catch (err) {
+    qrBox.innerHTML = `<span style="color:red;font-size:12px">Error: ${err.message}</span>`;
+  }
+}
+
+let _wcMobileAddress = null;
 
 async function submitThronosRecovery() {
   const bridge = window.ThronosBuilderWallet;
@@ -828,6 +931,60 @@ async function submitBuild(e) {
  */
 async function _attachThrPayment(body, paymentMethod) {
   if (paymentMethod !== 'thr' && paymentMethod !== 'thronos') return;
+
+  // Mobile wallet connected — request phone approval before proceeding
+  if (wallet.mobileApprovalEnabled && wallet.mobileSessionId && (_wcMobileAddress || wallet.address)) {
+    const mobileAddr = _wcMobileAddress || wallet.address;
+    const to     = currentQuote?.treasury_address || '';
+    const amount = currentQuote?.native_cost_thr  || 0;
+
+    try {
+      // Post the sign request to the relay
+      const rr = await fetch(`${THRONOS_RELAY}/api/wallet/wc/request`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: mobileAddr,
+          action: 'sign_tx',
+          payload: { to, amount, token: 'THR', session_id: wallet.mobileSessionId },
+          dapp: 'ThronosBuilder',
+          requires_mobile_approval: true,
+        })
+      });
+      const rd = await rr.json();
+      if (!rd.ok || !rd.request_id) throw new Error(rd.error || 'relay_error');
+
+      const requestId = rd.request_id;
+      toast('📱 Waiting for approval on your mobile wallet…', 'success');
+
+      // Poll for approval (max 2 minutes)
+      const result = await new Promise((resolve, reject) => {
+        const deadline = Date.now() + 120_000;
+        const t = setInterval(async () => {
+          try {
+            const pr = await fetch(`${THRONOS_RELAY}/api/wallet/wc/result/${requestId}`);
+            const pd = await pr.json();
+            if (pd.status === 'approved') { clearInterval(t); resolve(pd); }
+            if (pd.status === 'rejected') { clearInterval(t); reject(new Error('rejected_by_mobile')); }
+            if (Date.now() > deadline)    { clearInterval(t); reject(new Error('mobile_approval_timeout')); }
+          } catch (e) { clearInterval(t); reject(e); }
+        }, 2000);
+      });
+
+      if (result.signature) {
+        body.mobile_signature = result.signature;
+        body.mobile_address   = mobileAddr;
+        body.payment_method   = 'thr_mobile';
+        toast('✅ Approved on mobile! Submitting…', 'success');
+        return;
+      }
+    } catch (err) {
+      if (err.message === 'rejected_by_mobile') {
+        throw new Error('Transaction was rejected on your mobile wallet.');
+      }
+      // Timeout or network error — fall through to regular bridge/legacy
+      console.warn('[WC] Mobile approval failed, falling back:', err.message);
+    }
+  }
 
   const bridge = window.ThronosBuilderWallet;
 
