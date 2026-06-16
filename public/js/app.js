@@ -289,7 +289,7 @@ switchThrTab.toString; // expose to inline onclick
 
 let _wcPairingSessionId  = null;
 let _wcPairingPollTimer  = null;
-const THRONOS_RELAY = window.location.origin; // same host as builder
+const THRONOS_RELAY = 'https://api.thronoschain.org'; // WalletConnect relay (same as thronos_wallet_bridge.js)
 
 async function startWcPairing() {
   const qrBox    = document.getElementById('wcQrBox');
